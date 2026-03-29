@@ -24,6 +24,11 @@
             "name": "lora",
             "path": "project/samples/lora",
             "description": "LoRa TX/RX via E22-900M22S (SX1262)"
+        },
+        {
+            "name": "display",
+            "path": "project/samples/display",
+            "description": "Sharp LS027B7DH01A memory LCD test"
         }
     ],
     "boards": [
