@@ -1,0 +1,62 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // Primary debug config — requires marus25.cortex-debug extension.
+            // Workflow: "Zephyr: Select App & Board" → F5 (builds automatically).
+            // Peripheral registers appear in the "Cortex Peripherals" panel (SVD).
+            "type": "cortex-debug",
+            "request": "launch",
+            "name": "Debug (OpenOCD)",
+            "servertype": "openocd",
+            "executable": "${workspaceFolder}/build/debug/zephyr/zephyr.elf",
+            "configFiles": [
+                "${workspaceFolder}/.vscode/openocd/active.cfg"
+            ],
+            "svdFile": "${workspaceFolder}/.vscode/svd/active.svd",
+            "gdbPath": "${config:zephyr.sdkPath}/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
+            "preLaunchTask": "Zephyr: Build",
+            "runToEntryPoint": "main",
+            "postRestartCommands": [
+                "monitor reset halt"
+            ]
+        },
+        {
+            // Alternative — uses cpptools (no extra extension needed).
+            // Start "OpenOCD: Start Server" task first, then launch this config.
+            // Note: peripheral register view (SVD) is not available with cppdbg.
+            "type": "cppdbg",
+            "request": "launch",
+            "name": "Debug (cppdbg + OpenOCD attach)",
+            "program": "${workspaceFolder}/build/debug/zephyr/zephyr.elf",
+            "MIMode": "gdb",
+            "miDebuggerPath": "${config:zephyr.sdkPath}/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
+            "miDebuggerServerAddress": "localhost:3333",
+            "stopAtEntry": true,
+            "hardwareBreakpoints": {
+                "require": true,
+                "limit": 8
+            },
+            "setupCommands": [
+                {
+                    "description": "Halt target",
+                    "text": "monitor reset halt",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Load firmware",
+                    "text": "load",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Reset and halt",
+                    "text": "monitor reset halt",
+                    "ignoreFailures": false
+                }
+            ],
+            "externalConsole": false,
+            "filterStderr": true,
+            "preLaunchTask": "OpenOCD: Start Server"
+        }
+    ]
+}

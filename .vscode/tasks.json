@@ -1,0 +1,115 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Zephyr: Select App & Board",
+            "type": "shell",
+            "command": "python3 ${workspaceFolder}/.vscode/scripts/zephyr.py select",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "focus": true,
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Zephyr: Build",
+            "type": "shell",
+            "command": "python3 ${workspaceFolder}/.vscode/scripts/zephyr.py build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                {
+                    "owner": "cmake",
+                    "fileLocation": ["absolute"],
+                    "pattern": {
+                        "regexp": "^(.+):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                        "file": 1,
+                        "line": 2,
+                        "column": 3,
+                        "severity": 4,
+                        "message": 5
+                    }
+                }
+            ]
+        },
+        {
+            "label": "Zephyr: Build (Pristine)",
+            "type": "shell",
+            "command": "python3 ${workspaceFolder}/.vscode/scripts/zephyr.py build --pristine",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": [
+                {
+                    "owner": "cmake",
+                    "fileLocation": ["absolute"],
+                    "pattern": {
+                        "regexp": "^(.+):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                        "file": 1,
+                        "line": 2,
+                        "column": 3,
+                        "severity": 4,
+                        "message": 5
+                    }
+                }
+            ]
+        },
+        {
+            "label": "Zephyr: Flash",
+            "type": "shell",
+            "command": "python3 ${workspaceFolder}/.vscode/scripts/zephyr.py flash",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Zephyr: Show Active Config",
+            "type": "shell",
+            "command": "python3 ${workspaceFolder}/.vscode/scripts/zephyr.py info",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "focus": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "OpenOCD: Start Server",
+            "type": "shell",
+            "command": "openocd -f ${workspaceFolder}/.vscode/openocd/active.cfg",
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^$",
+                    "file": 1,
+                    "location": 2,
+                    "message": 3
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "Open On-Chip Debugger",
+                    "endsPattern": "Info : Listening on port 3333"
+                }
+            }
+        }
+    ]
+}

@@ -1,0 +1,7 @@
+.venv/
+external
+**/build*/
+.vscode/compile_commands.json
+.claude
+.vscode/.active-config.json
+.vscode/zephyr-ide.json

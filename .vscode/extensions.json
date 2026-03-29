@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "ms-vscode.cpptools",
+    "kylemicallefbonnici.dts-lsp",
+    "marus25.cortex-debug"
+  ],
+  "unwantedRecommendations": [
+  ]
+}

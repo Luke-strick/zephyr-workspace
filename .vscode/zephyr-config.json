@@ -1,0 +1,25 @@
+{
+    "applications": [
+        {
+            "name": "blinky",
+            "path": "external/zephyr/samples/basic/blinky",
+            "description": "Basic LED blinking example"
+        }
+    ],
+    "boards": [
+        {
+            "id": "nucleo_l432kc/stm32l432xx",
+            "name": "ST Nucleo L432KC",
+            "openocd_cfg": ".vscode/openocd/nucleo_l432kc.cfg",
+            "gdb_target": "stm32l4x",
+            "svd_file": ".vscode/svd/STM32L432.svd"
+        },
+        {
+            "id": "nucleo_u575zi_q/stm32u575xx",
+            "name": "ST Nucleo U575ZI-Q (STM32U575RGT6 core)",
+            "openocd_cfg": ".vscode/openocd/nucleo_u575zi_q.cfg",
+            "gdb_target": "stm32u5x",
+            "svd_file": ".vscode/svd/STM32U575.svd"
+        }
+    ]
+}
