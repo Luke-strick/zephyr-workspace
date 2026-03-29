@@ -88,6 +88,19 @@
             "problemMatcher": []
         },
         {
+            // Replace the hardware-id with your debugger's VID:PID (run "usbipd list" in PowerShell).
+            // J-Link: 1366:0101  |  ST-Link v2: 0483:3748  |  ST-Link v3: 0483:374b
+            "label": "USB: Attach debugger to WSL (auto-reattach)",
+            "type": "shell",
+            "command": "usbipd.exe attach --wsl --hardware-id ${input:usbHardwareId} --auto-attach",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "OpenOCD: Start Server",
             "type": "shell",
             "command": "openocd -f ${workspaceFolder}/.vscode/openocd/active.cfg",
@@ -110,6 +123,20 @@
                     "endsPattern": "Info : Listening on port 3333"
                 }
             }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "usbHardwareId",
+            "type": "pickString",
+            "description": "Debugger hardware ID (VID:PID)",
+            "options": [
+                "1366:0101",
+                "0483:374b",
+                "0483:3748",
+                "0483:374e"
+            ],
+            "default": "0483:374b"
         }
     ]
 }
