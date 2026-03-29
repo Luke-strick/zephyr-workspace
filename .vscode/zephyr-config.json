@@ -4,6 +4,26 @@
             "name": "blinky",
             "path": "external/zephyr/samples/basic/blinky",
             "description": "Basic LED blinking example"
+        },
+        {
+            "name": "gps",
+            "path": "project/samples/gps",
+            "description": "GPS position via MAX-M10S GNSS"
+        },
+        {
+            "name": "compass",
+            "path": "project/samples/compass",
+            "description": "Tilt-compensated compass with calibration"
+        },
+        {
+            "name": "sdcard_usb",
+            "path": "project/samples/sdcard_usb",
+            "description": "SD card USB mass-storage passthrough"
+        },
+        {
+            "name": "lora",
+            "path": "project/samples/lora",
+            "description": "LoRa TX/RX via E22-900M22S (SX1262)"
         }
     ],
     "boards": [
