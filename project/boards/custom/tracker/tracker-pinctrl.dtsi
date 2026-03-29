@@ -1,0 +1,203 @@
+/*
+ * Pin control definitions for the Tracker board
+ * STM32U575RGT6 — LQFP-64
+ *
+ * Every peripheral has a "default" (active) and "sleep" (analog) state.
+ * Pins are grouped by power domain so sleep can be applied per-domain.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <zephyr/dt-bindings/pinctrl/stm32-pinctrl.h>
+
+&pinctrl {
+
+	/* ==============================================================
+	 * MCU Domain (always on)
+	 * USART1 (console / extra), USB, ADC
+	 * ============================================================== */
+
+	/* USART1 — Extra UART / Console (PA9 TX, PA10 RX) */
+	usart1_tx_pa9: usart1_tx_pa9 {
+		pinmux = <STM32_PINMUX('A', 9, AF7)>;
+		bias-disable;
+	};
+	usart1_rx_pa10: usart1_rx_pa10 {
+		pinmux = <STM32_PINMUX('A', 10, AF7)>;
+		bias-disable;
+	};
+	usart1_sleep_pa9: usart1_sleep_pa9 {
+		pinmux = <STM32_PINMUX('A', 9, ANALOG)>;
+	};
+	usart1_sleep_pa10: usart1_sleep_pa10 {
+		pinmux = <STM32_PINMUX('A', 10, ANALOG)>;
+	};
+
+	/* USB OTG FS (PA11 D-, PA12 D+) */
+	usb_otg_fs_dm_pa11: usb_otg_fs_dm_pa11 {
+		pinmux = <STM32_PINMUX('A', 11, AF10)>;
+	};
+	usb_otg_fs_dp_pa12: usb_otg_fs_dp_pa12 {
+		pinmux = <STM32_PINMUX('A', 12, AF10)>;
+	};
+
+	/* ADC1 — VBAT measurement (PA0 / IN5) */
+	adc1_in5_pa0: adc1_in5_pa0 {
+		pinmux = <STM32_PINMUX('A', 0, ANALOG)>;
+	};
+
+	/* ==============================================================
+	 * 3V3 Domain (PB15 = 3V3_EN)
+	 * LoRa SPI1, Accel I2C3, Mag I2C1, GPS USART3, SDMMC1
+	 * ============================================================== */
+
+	/* SPI1 — LoRa E22-900M22S (PA1 SCK, PA6 MISO, PA7 MOSI) */
+	spi1_sck_pa1: spi1_sck_pa1 {
+		pinmux = <STM32_PINMUX('A', 1, AF5)>;
+		bias-disable;
+		slew-rate = "very-high-speed";
+	};
+	spi1_miso_pa6: spi1_miso_pa6 {
+		pinmux = <STM32_PINMUX('A', 6, AF5)>;
+		bias-disable;
+	};
+	spi1_mosi_pa7: spi1_mosi_pa7 {
+		pinmux = <STM32_PINMUX('A', 7, AF5)>;
+		bias-disable;
+		slew-rate = "very-high-speed";
+	};
+	spi1_sleep_pa1: spi1_sleep_pa1 {
+		pinmux = <STM32_PINMUX('A', 1, ANALOG)>;
+	};
+	spi1_sleep_pa6: spi1_sleep_pa6 {
+		pinmux = <STM32_PINMUX('A', 6, ANALOG)>;
+	};
+	spi1_sleep_pa7: spi1_sleep_pa7 {
+		pinmux = <STM32_PINMUX('A', 7, ANALOG)>;
+	};
+
+	/* I2C3 — LSM6DSOTR Accelerometer (PC0 SCL, PC1 SDA) */
+	i2c3_scl_pc0: i2c3_scl_pc0 {
+		pinmux = <STM32_PINMUX('C', 0, AF4)>;
+		bias-pull-up;
+		drive-open-drain;
+	};
+	i2c3_sda_pc1: i2c3_sda_pc1 {
+		pinmux = <STM32_PINMUX('C', 1, AF4)>;
+		bias-pull-up;
+		drive-open-drain;
+	};
+	i2c3_sleep_pc0: i2c3_sleep_pc0 {
+		pinmux = <STM32_PINMUX('C', 0, ANALOG)>;
+	};
+	i2c3_sleep_pc1: i2c3_sleep_pc1 {
+		pinmux = <STM32_PINMUX('C', 1, ANALOG)>;
+	};
+
+	/* I2C1 — LIS3MDLTR Magnetometer (PB6 SCL, PB7 SDA) */
+	i2c1_scl_pb6: i2c1_scl_pb6 {
+		pinmux = <STM32_PINMUX('B', 6, AF4)>;
+		bias-pull-up;
+		drive-open-drain;
+	};
+	i2c1_sda_pb7: i2c1_sda_pb7 {
+		pinmux = <STM32_PINMUX('B', 7, AF4)>;
+		bias-pull-up;
+		drive-open-drain;
+	};
+	i2c1_sleep_pb6: i2c1_sleep_pb6 {
+		pinmux = <STM32_PINMUX('B', 6, ANALOG)>;
+	};
+	i2c1_sleep_pb7: i2c1_sleep_pb7 {
+		pinmux = <STM32_PINMUX('B', 7, ANALOG)>;
+	};
+
+	/* USART3 — GPS MAX-M10S (PC4 TX, PC5 RX) */
+	usart3_tx_pc4: usart3_tx_pc4 {
+		pinmux = <STM32_PINMUX('C', 4, AF7)>;
+		bias-disable;
+	};
+	usart3_rx_pc5: usart3_rx_pc5 {
+		pinmux = <STM32_PINMUX('C', 5, AF7)>;
+		bias-disable;
+	};
+	usart3_sleep_pc4: usart3_sleep_pc4 {
+		pinmux = <STM32_PINMUX('C', 4, ANALOG)>;
+	};
+	usart3_sleep_pc5: usart3_sleep_pc5 {
+		pinmux = <STM32_PINMUX('C', 5, ANALOG)>;
+	};
+
+	/* SDMMC1 — SD Card (4-bit wide bus) */
+	sdmmc1_d0_pc8: sdmmc1_d0_pc8 {
+		pinmux = <STM32_PINMUX('C', 8, AF12)>;
+		bias-pull-up;
+		slew-rate = "very-high-speed";
+	};
+	sdmmc1_d1_pc9: sdmmc1_d1_pc9 {
+		pinmux = <STM32_PINMUX('C', 9, AF12)>;
+		bias-pull-up;
+		slew-rate = "very-high-speed";
+	};
+	sdmmc1_d2_pc10: sdmmc1_d2_pc10 {
+		pinmux = <STM32_PINMUX('C', 10, AF12)>;
+		bias-pull-up;
+		slew-rate = "very-high-speed";
+	};
+	sdmmc1_d3_pc11: sdmmc1_d3_pc11 {
+		pinmux = <STM32_PINMUX('C', 11, AF12)>;
+		bias-pull-up;
+		slew-rate = "very-high-speed";
+	};
+	sdmmc1_ck_pc12: sdmmc1_ck_pc12 {
+		pinmux = <STM32_PINMUX('C', 12, AF12)>;
+		bias-disable;
+		slew-rate = "very-high-speed";
+	};
+	sdmmc1_cmd_pd2: sdmmc1_cmd_pd2 {
+		pinmux = <STM32_PINMUX('D', 2, AF12)>;
+		bias-pull-up;
+		slew-rate = "very-high-speed";
+	};
+	sdmmc1_sleep_pc8: sdmmc1_sleep_pc8 {
+		pinmux = <STM32_PINMUX('C', 8, ANALOG)>;
+	};
+	sdmmc1_sleep_pc9: sdmmc1_sleep_pc9 {
+		pinmux = <STM32_PINMUX('C', 9, ANALOG)>;
+	};
+	sdmmc1_sleep_pc10: sdmmc1_sleep_pc10 {
+		pinmux = <STM32_PINMUX('C', 10, ANALOG)>;
+	};
+	sdmmc1_sleep_pc11: sdmmc1_sleep_pc11 {
+		pinmux = <STM32_PINMUX('C', 11, ANALOG)>;
+	};
+	sdmmc1_sleep_pc12: sdmmc1_sleep_pc12 {
+		pinmux = <STM32_PINMUX('C', 12, ANALOG)>;
+	};
+	sdmmc1_sleep_pd2: sdmmc1_sleep_pd2 {
+		pinmux = <STM32_PINMUX('D', 2, ANALOG)>;
+	};
+
+	/* ==============================================================
+	 * 5V Domain (PA8 = 5V_EN)
+	 * Sharp LS027B7DH01A LCD via SPI2
+	 * ============================================================== */
+
+	/* SPI2 — Sharp LCD (PB10 SCLK, PC3 SI/MOSI, write-only) */
+	spi2_sck_pb10: spi2_sck_pb10 {
+		pinmux = <STM32_PINMUX('B', 10, AF5)>;
+		bias-disable;
+		slew-rate = "very-high-speed";
+	};
+	spi2_mosi_pc3: spi2_mosi_pc3 {
+		pinmux = <STM32_PINMUX('C', 3, AF5)>;
+		bias-disable;
+		slew-rate = "very-high-speed";
+	};
+	spi2_sleep_pb10: spi2_sleep_pb10 {
+		pinmux = <STM32_PINMUX('B', 10, ANALOG)>;
+	};
+	spi2_sleep_pc3: spi2_sleep_pc3 {
+		pinmux = <STM32_PINMUX('C', 3, ANALOG)>;
+	};
+};

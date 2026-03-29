@@ -1,0 +1,6 @@
+board:
+  name: tracker
+  full_name: Custom GPS/LoRa Tracker
+  vendor: custom
+  socs:
+    - name: stm32u575xx

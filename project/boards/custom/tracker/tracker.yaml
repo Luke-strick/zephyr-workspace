@@ -1,0 +1,21 @@
+identifier: tracker
+name: Custom GPS/LoRa Tracker
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+supported:
+  - gpio
+  - i2c
+  - spi
+  - usart
+  - adc
+  - usb_device
+  - watchdog
+  - dma
+  - rtc
+  - sdmmc
+ram: 786
+flash: 1024
+vendor: custom

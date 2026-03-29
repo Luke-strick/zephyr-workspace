@@ -85,6 +85,7 @@ def cmd_select(_args):
         'openocd_cfg': board.get('openocd_cfg', ''),
         'gdb_target': board.get('gdb_target', ''),
         'svd_file': svd_rel,
+        'board_root': board.get('board_root', ''),
         'build_dir': 'build/debug',
     }
 
@@ -144,6 +145,12 @@ def cmd_build(args):
     ]
     if args.pristine:
         cmd.append('--pristine')
+
+    # Pass BOARD_ROOT for custom boards outside the Zephyr tree
+    board_root = active.get('board_root', '')
+    if board_root:
+        board_root_abs = os.path.join(WORKSPACE, board_root)
+        cmd.extend(['--', f'-DBOARD_ROOT={board_root_abs}'])
 
     result = subprocess.run(cmd, cwd=WORKSPACE)
     sys.exit(result.returncode)

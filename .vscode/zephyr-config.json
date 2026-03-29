@@ -20,6 +20,14 @@
             "openocd_cfg": ".vscode/openocd/nucleo_u575zi_q.cfg",
             "gdb_target": "stm32u5x",
             "svd_file": ".vscode/svd/STM32U575.svd"
+        },
+        {
+            "id": "tracker/stm32u575xx",
+            "name": "Tracker (STM32U575RGT6)",
+            "openocd_cfg": ".vscode/openocd/tracker.cfg",
+            "gdb_target": "stm32u5x",
+            "svd_file": ".vscode/svd/STM32U575.svd",
+            "board_root": "project"
         }
     ]
 }

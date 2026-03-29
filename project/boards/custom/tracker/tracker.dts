@@ -1,0 +1,310 @@
+/*
+ * Custom GPS / LoRa Tracker Board
+ * MCU: STM32U575RGT6 (Cortex-M33, 1 MB flash, 786 KB SRAM)
+ *
+ * Power domains
+ *   MCU   — always on: console USART1, USB, buttons, ADC VBAT
+ *   3V3   — PB15 enable: LoRa, accel, mag, GPS, SD card
+ *   5V    — PA8  enable: Sharp memory LCD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+#include <st/u5/stm32u575Xg.dtsi>
+#include "tracker-pinctrl.dtsi"
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/i2c/i2c.h>
+
+/ {
+	model = "Custom GPS/LoRa Tracker (STM32U575RGT6)";
+	compatible = "custom,tracker";
+
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	chosen {
+		zephyr,console = &usart1;
+		zephyr,shell-uart = &usart1;
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;
+		zephyr,display = &ls0xx;
+	};
+
+	aliases {
+		sw0 = &button1;
+		sw1 = &button2;
+		watchdog0 = &iwdg;
+		lora0 = &lora;
+		accel0 = &lsm6dso;
+		mag0 = &lis3mdl;
+	};
+
+	/* ========================
+	 * GPIO-controlled power domains
+	 * ======================== */
+
+	power_3v3: power-3v3 {
+		compatible = "power-domain-gpio";
+		enable-gpios = <&gpiob 15 GPIO_ACTIVE_HIGH>;
+		startup-delay-us = <2000>;
+		#power-domain-cells = <0>;
+	};
+
+	power_5v: power-5v {
+		compatible = "power-domain-gpio";
+		enable-gpios = <&gpioa 8 GPIO_ACTIVE_HIGH>;
+		startup-delay-us = <5000>;
+		#power-domain-cells = <0>;
+	};
+
+	/* ========================
+	 * Buttons (MCU domain)
+	 * ======================== */
+
+	gpio_keys {
+		compatible = "gpio-keys";
+
+		button1: button1 {
+			label = "Button 1";
+			gpios = <&gpioh 3 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_0>;
+		};
+
+		button2: button2 {
+			label = "Button 2";
+			gpios = <&gpioc 13 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_1>;
+		};
+	};
+};
+
+/* ========================================================
+ * Clock tree — 24 MHz HSE crystal → PLL1 → 160 MHz SYSCLK
+ * ======================================================== */
+
+&clk_hse {
+	clock-frequency = <DT_FREQ_M(24)>;
+	status = "okay";
+};
+
+&clk_hsi48 {
+	status = "okay";
+};
+
+&clk_lsi {
+	status = "okay";
+};
+
+&pll1 {
+	div-m = <3>;
+	mul-n = <40>;
+	div-q = <2>;
+	div-r = <2>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+&rcc {
+	clocks = <&pll1>;
+	clock-frequency = <DT_FREQ_M(160)>;
+	ahb-prescaler = <1>;
+	apb1-prescaler = <1>;
+	apb2-prescaler = <1>;
+	apb3-prescaler = <1>;
+};
+
+/* ========================================================
+ * Flash partitions — 1 MB
+ * ======================================================== */
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		boot_partition: partition@0 {
+			label = "mcuboot";
+			reg = <0x00000000 DT_SIZE_K(64)>;
+		};
+		slot0_partition: partition@10000 {
+			label = "image-0";
+			reg = <0x00010000 DT_SIZE_K(448)>;
+		};
+		slot1_partition: partition@80000 {
+			label = "image-1";
+			reg = <0x00080000 DT_SIZE_K(448)>;
+		};
+		storage_partition: partition@f0000 {
+			label = "storage";
+			reg = <0x000f0000 DT_SIZE_K(64)>;
+		};
+	};
+};
+
+/* ========================================================
+ * MCU Domain peripherals (always on)
+ * ======================================================== */
+
+/* USART1 — console / spare UART (PA9 TX, PA10 RX) */
+&usart1 {
+	pinctrl-0 = <&usart1_tx_pa9 &usart1_rx_pa10>;
+	pinctrl-1 = <&usart1_sleep_pa9 &usart1_sleep_pa10>;
+	pinctrl-names = "default", "sleep";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+/* USB OTG FS (PA11 D-, PA12 D+) */
+zephyr_udc0: &usbotg_fs {
+	pinctrl-0 = <&usb_otg_fs_dm_pa11 &usb_otg_fs_dp_pa12>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+/* ADC1 — VBAT measurement (PA0 / IN5) */
+&adc1 {
+	pinctrl-0 = <&adc1_in5_pa0>;
+	pinctrl-names = "default";
+	st,adc-clock-source = "ASYNC";
+	st,adc-prescaler = <4>;
+	status = "okay";
+};
+
+/* ========================================================
+ * 3V3 Domain peripherals (PB15 = 3V3_EN)
+ * ======================================================== */
+
+/* SPI1 — LoRa E22-900M22S (SX1262) */
+&spi1 {
+	pinctrl-0 = <&spi1_sck_pa1 &spi1_miso_pa6 &spi1_mosi_pa7>;
+	pinctrl-1 = <&spi1_sleep_pa1 &spi1_sleep_pa6 &spi1_sleep_pa7>;
+	pinctrl-names = "default", "sleep";
+	cs-gpios = <&gpioa 4 GPIO_ACTIVE_LOW>;
+	power-domains = <&power_3v3>;
+	status = "okay";
+
+	lora: sx1262@0 {
+		compatible = "semtech,sx1262";
+		reg = <0>;
+		spi-max-frequency = <DT_FREQ_M(8)>;
+		reset-gpios = <&gpioa 5 GPIO_ACTIVE_LOW>;
+		busy-gpios  = <&gpioa 3 GPIO_ACTIVE_HIGH>;
+		dio1-gpios  = <&gpioa 2 GPIO_ACTIVE_HIGH>;
+		tx-enable-gpios = <&gpiob 1 GPIO_ACTIVE_HIGH>;
+		rx-enable-gpios = <&gpiob 0 GPIO_ACTIVE_HIGH>;
+		power-domains = <&power_3v3>;
+	};
+};
+
+/* I2C3 — LSM6DSOTR accelerometer / gyroscope */
+&i2c3 {
+	pinctrl-0 = <&i2c3_scl_pc0 &i2c3_sda_pc1>;
+	pinctrl-1 = <&i2c3_sleep_pc0 &i2c3_sleep_pc1>;
+	pinctrl-names = "default", "sleep";
+	clock-frequency = <I2C_BITRATE_FAST>;
+	power-domains = <&power_3v3>;
+	status = "okay";
+
+	lsm6dso: lsm6dso@6a {
+		compatible = "st,lsm6dso";
+		reg = <0x6a>;
+		power-domains = <&power_3v3>;
+	};
+};
+
+/* I2C1 — LIS3MDLTR magnetometer */
+&i2c1 {
+	pinctrl-0 = <&i2c1_scl_pb6 &i2c1_sda_pb7>;
+	pinctrl-1 = <&i2c1_sleep_pb6 &i2c1_sleep_pb7>;
+	pinctrl-names = "default", "sleep";
+	clock-frequency = <I2C_BITRATE_FAST>;
+	power-domains = <&power_3v3>;
+	status = "okay";
+
+	lis3mdl: lis3mdl@1c {
+		compatible = "st,lis3mdl-magn";
+		reg = <0x1c>;
+		power-domains = <&power_3v3>;
+	};
+};
+
+/* USART3 — GPS MAX-M10S-00B (PC4 TX, PC5 RX) */
+&usart3 {
+	pinctrl-0 = <&usart3_tx_pc4 &usart3_rx_pc5>;
+	pinctrl-1 = <&usart3_sleep_pc4 &usart3_sleep_pc5>;
+	pinctrl-names = "default", "sleep";
+	current-speed = <9600>;
+	power-domains = <&power_3v3>;
+	status = "okay";
+
+	gnss: gnss-nmea-generic {
+		compatible = "gnss-nmea-generic";
+	};
+};
+
+/* SDMMC1 — SD card (4-bit, PC7 card-detect) */
+&sdmmc1 {
+	pinctrl-0 = <&sdmmc1_d0_pc8 &sdmmc1_d1_pc9
+		     &sdmmc1_d2_pc10 &sdmmc1_d3_pc11
+		     &sdmmc1_ck_pc12 &sdmmc1_cmd_pd2>;
+	pinctrl-1 = <&sdmmc1_sleep_pc8 &sdmmc1_sleep_pc9
+		     &sdmmc1_sleep_pc10 &sdmmc1_sleep_pc11
+		     &sdmmc1_sleep_pc12 &sdmmc1_sleep_pd2>;
+	pinctrl-names = "default", "sleep";
+	cd-gpios = <&gpioc 7 GPIO_ACTIVE_LOW>;
+	bus-width = <4>;
+	power-domains = <&power_3v3>;
+	status = "okay";
+};
+
+/* ========================================================
+ * 5V Domain peripherals (PA8 = 5V_EN)
+ * ======================================================== */
+
+/* SPI2 — Sharp LS027B7DH01A memory LCD (write-only: SCK + MOSI) */
+&spi2 {
+	pinctrl-0 = <&spi2_sck_pb10 &spi2_mosi_pc3>;
+	pinctrl-1 = <&spi2_sleep_pb10 &spi2_sleep_pc3>;
+	pinctrl-names = "default", "sleep";
+	cs-gpios = <&gpiob 14 GPIO_ACTIVE_HIGH>;
+	power-domains = <&power_5v>;
+	status = "okay";
+
+	ls0xx: ls0xx@0 {
+		compatible = "sharp,ls0xx";
+		reg = <0>;
+		spi-max-frequency = <2000000>;
+		width = <400>;
+		height = <240>;
+		extcomin-gpios  = <&gpiob 13 GPIO_ACTIVE_HIGH>;
+		extcomin-frequency = <60>;
+		disp-en-gpios   = <&gpiob 12 GPIO_ACTIVE_HIGH>;
+		power-domains = <&power_5v>;
+	};
+};
+
+/* ========================================================
+ * System peripherals
+ * ======================================================== */
+
+&iwdg {
+	status = "okay";
+};
+
+&rng {
+	status = "okay";
+};
+
+&gpdma1 {
+	status = "okay";
+};
+
+stm32_lp_tick_source: &lptim1 {
+	clocks = <&rcc STM32_CLOCK(APB3, 11)>,
+		 <&rcc STM32_SRC_LSI LPTIM1_SEL(1)>;
+	status = "okay";
+};
