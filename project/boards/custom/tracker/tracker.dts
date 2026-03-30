@@ -151,8 +151,8 @@
 
 /* USART1 — console / spare UART (PA9 TX, PA10 RX) */
 &usart1 {
-	pinctrl-0 = <&usart1_tx_pa9 &usart1_rx_pa10>;
-	pinctrl-1 = <&usart1_sleep_pa9 &usart1_sleep_pa10>;
+	pinctrl-0 = <&console_tx_active &console_rx_active>;
+	pinctrl-1 = <&console_tx_sleep &console_rx_sleep>;
 	pinctrl-names = "default", "sleep";
 	current-speed = <115200>;
 	status = "okay";
@@ -160,14 +160,14 @@
 
 /* USB OTG FS (PA11 D-, PA12 D+) */
 zephyr_udc0: &usbotg_fs {
-	pinctrl-0 = <&usb_otg_fs_dm_pa11 &usb_otg_fs_dp_pa12>;
+	pinctrl-0 = <&usb_dm_active &usb_dp_active>;
 	pinctrl-names = "default";
 	status = "okay";
 };
 
 /* ADC1 — VBAT measurement (PA0 / IN5) */
 &adc1 {
-	pinctrl-0 = <&adc1_in5_pa0>;
+	pinctrl-0 = <&vbat_measure_active>;
 	pinctrl-names = "default";
 	st,adc-clock-source = "ASYNC";
 	st,adc-prescaler = <4>;
@@ -180,8 +180,8 @@ zephyr_udc0: &usbotg_fs {
 
 /* SPI1 — LoRa E22-900M22S (SX1262) */
 &spi1 {
-	pinctrl-0 = <&spi1_sck_pa1 &spi1_miso_pa6 &spi1_mosi_pa7>;
-	pinctrl-1 = <&spi1_sleep_pa1 &spi1_sleep_pa6 &spi1_sleep_pa7>;
+	pinctrl-0 = <&lora_sck_active &lora_miso_active &lora_mosi_active>;
+	pinctrl-1 = <&lora_sck_sleep &lora_miso_sleep &lora_mosi_sleep>;
 	pinctrl-names = "default", "sleep";
 	cs-gpios = <&gpioa 4 GPIO_ACTIVE_LOW>;
 	power-domains = <&power_3v3>;
@@ -202,8 +202,8 @@ zephyr_udc0: &usbotg_fs {
 
 /* I2C3 — LSM6DSOTR accelerometer / gyroscope */
 &i2c3 {
-	pinctrl-0 = <&i2c3_scl_pc0 &i2c3_sda_pc1>;
-	pinctrl-1 = <&i2c3_sleep_pc0 &i2c3_sleep_pc1>;
+	pinctrl-0 = <&acc_scl_active &acc_sda_active>;
+	pinctrl-1 = <&acc_scl_sleep &acc_sda_sleep>;
 	pinctrl-names = "default", "sleep";
 	clock-frequency = <I2C_BITRATE_FAST>;
 	power-domains = <&power_3v3>;
@@ -218,8 +218,8 @@ zephyr_udc0: &usbotg_fs {
 
 /* I2C1 — LIS3MDLTR magnetometer */
 &i2c1 {
-	pinctrl-0 = <&i2c1_scl_pb6 &i2c1_sda_pb7>;
-	pinctrl-1 = <&i2c1_sleep_pb6 &i2c1_sleep_pb7>;
+	pinctrl-0 = <&mag_scl_active &mag_sda_active>;
+	pinctrl-1 = <&mag_scl_sleep &mag_sda_sleep>;
 	pinctrl-names = "default", "sleep";
 	clock-frequency = <I2C_BITRATE_FAST>;
 	power-domains = <&power_3v3>;
@@ -234,8 +234,8 @@ zephyr_udc0: &usbotg_fs {
 
 /* USART3 — GPS MAX-M10S-00B (PC4 TX, PC5 RX) */
 &usart3 {
-	pinctrl-0 = <&usart3_tx_pc4 &usart3_rx_pc5>;
-	pinctrl-1 = <&usart3_sleep_pc4 &usart3_sleep_pc5>;
+	pinctrl-0 = <&gps_tx_active &gps_rx_active>;
+	pinctrl-1 = <&gps_tx_sleep &gps_rx_sleep>;
 	pinctrl-names = "default", "sleep";
 	current-speed = <9600>;
 	power-domains = <&power_3v3>;
@@ -248,12 +248,12 @@ zephyr_udc0: &usbotg_fs {
 
 /* SDMMC1 — SD card (4-bit, PC7 card-detect) */
 &sdmmc1 {
-	pinctrl-0 = <&sdmmc1_d0_pc8 &sdmmc1_d1_pc9
-		     &sdmmc1_d2_pc10 &sdmmc1_d3_pc11
-		     &sdmmc1_ck_pc12 &sdmmc1_cmd_pd2>;
-	pinctrl-1 = <&sdmmc1_sleep_pc8 &sdmmc1_sleep_pc9
-		     &sdmmc1_sleep_pc10 &sdmmc1_sleep_pc11
-		     &sdmmc1_sleep_pc12 &sdmmc1_sleep_pd2>;
+	pinctrl-0 = <&sd_d0_active &sd_d1_active
+		     &sd_d2_active &sd_d3_active
+		     &sd_ck_active &sd_cmd_active>;
+	pinctrl-1 = <&sd_d0_sleep &sd_d1_sleep
+		     &sd_d2_sleep &sd_d3_sleep
+		     &sd_ck_sleep &sd_cmd_sleep>;
 	pinctrl-names = "default", "sleep";
 	cd-gpios = <&gpioc 7 GPIO_ACTIVE_LOW>;
 	bus-width = <4>;
@@ -268,8 +268,8 @@ zephyr_udc0: &usbotg_fs {
 
 /* SPI2 — Sharp LS027B7DH01A memory LCD (write-only: SCK + MOSI) */
 &spi2 {
-	pinctrl-0 = <&spi2_sck_pb10 &spi2_mosi_pc3>;
-	pinctrl-1 = <&spi2_sleep_pb10 &spi2_sleep_pc3>;
+	pinctrl-0 = <&lcd_sclk_active &lcd_si_active>;
+	pinctrl-1 = <&lcd_sclk_sleep &lcd_si_sleep>;
 	pinctrl-names = "default", "sleep";
 	cs-gpios = <&gpiob 14 GPIO_ACTIVE_HIGH>;
 	power-domains = <&power_5v>;

@@ -4,6 +4,7 @@
  *
  * Every peripheral has a "default" (active) and "sleep" (analog) state.
  * Pins are grouped by power domain so sleep can be applied per-domain.
+ * Pin names reflect the connected component, not the STM32 peripheral.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,36 +14,71 @@
 &pinctrl {
 
 	/* ==============================================================
-	 * MCU Domain (always on)
-	 * USART1 (console / extra), USB, ADC
+	 * SWD / JTAG debug port (required by SoC dtsi swj_port node)
 	 * ============================================================== */
 
-	/* USART1 — Extra UART / Console (PA9 TX, PA10 RX) */
-	usart1_tx_pa9: usart1_tx_pa9 {
+	debug_jtms_swdio_pa13: debug_jtms_swdio_pa13 {
+		pinmux = <STM32_PINMUX('A', 13, AF0)>;
+	};
+	debug_jtck_swclk_pa14: debug_jtck_swclk_pa14 {
+		pinmux = <STM32_PINMUX('A', 14, AF0)>;
+	};
+	debug_jtdi_pa15: debug_jtdi_pa15 {
+		pinmux = <STM32_PINMUX('A', 15, AF0)>;
+	};
+	debug_jtdo_swo_pb3: debug_jtdo_swo_pb3 {
+		pinmux = <STM32_PINMUX('B', 3, AF0)>;
+	};
+	debug_jtrst_pb4: debug_jtrst_pb4 {
+		pinmux = <STM32_PINMUX('B', 4, AF0)>;
+	};
+	analog_pa13: analog_pa13 {
+		pinmux = <STM32_PINMUX('A', 13, ANALOG)>;
+	};
+	analog_pa14: analog_pa14 {
+		pinmux = <STM32_PINMUX('A', 14, ANALOG)>;
+	};
+	analog_pa15: analog_pa15 {
+		pinmux = <STM32_PINMUX('A', 15, ANALOG)>;
+	};
+	analog_pb3: analog_pb3 {
+		pinmux = <STM32_PINMUX('B', 3, ANALOG)>;
+	};
+	analog_pb4: analog_pb4 {
+		pinmux = <STM32_PINMUX('B', 4, ANALOG)>;
+	};
+
+	/* ==============================================================
+	 * MCU Domain (always on)
+	 * Console USART1, USB, ADC
+	 * ============================================================== */
+
+	/* Console UART (PA9 TX, PA10 RX) */
+	console_tx_active: usart1_tx_pa9 {
 		pinmux = <STM32_PINMUX('A', 9, AF7)>;
 		bias-disable;
 	};
-	usart1_rx_pa10: usart1_rx_pa10 {
+	console_rx_active: usart1_rx_pa10 {
 		pinmux = <STM32_PINMUX('A', 10, AF7)>;
 		bias-disable;
 	};
-	usart1_sleep_pa9: usart1_sleep_pa9 {
+	console_tx_sleep: usart1_sleep_pa9 {
 		pinmux = <STM32_PINMUX('A', 9, ANALOG)>;
 	};
-	usart1_sleep_pa10: usart1_sleep_pa10 {
+	console_rx_sleep: usart1_sleep_pa10 {
 		pinmux = <STM32_PINMUX('A', 10, ANALOG)>;
 	};
 
 	/* USB OTG FS (PA11 D-, PA12 D+) */
-	usb_otg_fs_dm_pa11: usb_otg_fs_dm_pa11 {
+	usb_dm_active: usb_otg_fs_dm_pa11 {
 		pinmux = <STM32_PINMUX('A', 11, AF10)>;
 	};
-	usb_otg_fs_dp_pa12: usb_otg_fs_dp_pa12 {
+	usb_dp_active: usb_otg_fs_dp_pa12 {
 		pinmux = <STM32_PINMUX('A', 12, AF10)>;
 	};
 
 	/* ADC1 — VBAT measurement (PA0 / IN5) */
-	adc1_in5_pa0: adc1_in5_pa0 {
+	vbat_measure_active: adc1_in5_pa0 {
 		pinmux = <STM32_PINMUX('A', 0, ANALOG)>;
 	};
 
@@ -51,130 +87,130 @@
 	 * LoRa SPI1, Accel I2C3, Mag I2C1, GPS USART3, SDMMC1
 	 * ============================================================== */
 
-	/* SPI1 — LoRa E22-900M22S (PA1 SCK, PA6 MISO, PA7 MOSI) */
-	spi1_sck_pa1: spi1_sck_pa1 {
+	/* LoRa E22-900M22S via SPI1 (PA1 SCK, PA6 MISO, PA7 MOSI) */
+	lora_sck_active: spi1_sck_pa1 {
 		pinmux = <STM32_PINMUX('A', 1, AF5)>;
 		bias-disable;
 		slew-rate = "very-high-speed";
 	};
-	spi1_miso_pa6: spi1_miso_pa6 {
+	lora_miso_active: spi1_miso_pa6 {
 		pinmux = <STM32_PINMUX('A', 6, AF5)>;
 		bias-disable;
 	};
-	spi1_mosi_pa7: spi1_mosi_pa7 {
+	lora_mosi_active: spi1_mosi_pa7 {
 		pinmux = <STM32_PINMUX('A', 7, AF5)>;
 		bias-disable;
 		slew-rate = "very-high-speed";
 	};
-	spi1_sleep_pa1: spi1_sleep_pa1 {
+	lora_sck_sleep: spi1_sleep_pa1 {
 		pinmux = <STM32_PINMUX('A', 1, ANALOG)>;
 	};
-	spi1_sleep_pa6: spi1_sleep_pa6 {
+	lora_miso_sleep: spi1_sleep_pa6 {
 		pinmux = <STM32_PINMUX('A', 6, ANALOG)>;
 	};
-	spi1_sleep_pa7: spi1_sleep_pa7 {
+	lora_mosi_sleep: spi1_sleep_pa7 {
 		pinmux = <STM32_PINMUX('A', 7, ANALOG)>;
 	};
 
-	/* I2C3 — LSM6DSOTR Accelerometer (PC0 SCL, PC1 SDA) */
-	i2c3_scl_pc0: i2c3_scl_pc0 {
+	/* LSM6DSOTR Accelerometer via I2C3 (PC0 SCL, PC1 SDA) */
+	acc_scl_active: i2c3_scl_pc0 {
 		pinmux = <STM32_PINMUX('C', 0, AF4)>;
 		bias-pull-up;
 		drive-open-drain;
 	};
-	i2c3_sda_pc1: i2c3_sda_pc1 {
+	acc_sda_active: i2c3_sda_pc1 {
 		pinmux = <STM32_PINMUX('C', 1, AF4)>;
 		bias-pull-up;
 		drive-open-drain;
 	};
-	i2c3_sleep_pc0: i2c3_sleep_pc0 {
+	acc_scl_sleep: i2c3_sleep_pc0 {
 		pinmux = <STM32_PINMUX('C', 0, ANALOG)>;
 	};
-	i2c3_sleep_pc1: i2c3_sleep_pc1 {
+	acc_sda_sleep: i2c3_sleep_pc1 {
 		pinmux = <STM32_PINMUX('C', 1, ANALOG)>;
 	};
 
-	/* I2C1 — LIS3MDLTR Magnetometer (PB6 SCL, PB7 SDA) */
-	i2c1_scl_pb6: i2c1_scl_pb6 {
+	/* LIS3MDLTR Magnetometer via I2C1 (PB6 SCL, PB7 SDA) */
+	mag_scl_active: i2c1_scl_pb6 {
 		pinmux = <STM32_PINMUX('B', 6, AF4)>;
 		bias-pull-up;
 		drive-open-drain;
 	};
-	i2c1_sda_pb7: i2c1_sda_pb7 {
+	mag_sda_active: i2c1_sda_pb7 {
 		pinmux = <STM32_PINMUX('B', 7, AF4)>;
 		bias-pull-up;
 		drive-open-drain;
 	};
-	i2c1_sleep_pb6: i2c1_sleep_pb6 {
+	mag_scl_sleep: i2c1_sleep_pb6 {
 		pinmux = <STM32_PINMUX('B', 6, ANALOG)>;
 	};
-	i2c1_sleep_pb7: i2c1_sleep_pb7 {
+	mag_sda_sleep: i2c1_sleep_pb7 {
 		pinmux = <STM32_PINMUX('B', 7, ANALOG)>;
 	};
 
-	/* USART3 — GPS MAX-M10S (PC4 TX, PC5 RX) */
-	usart3_tx_pc4: usart3_tx_pc4 {
+	/* GPS MAX-M10S via USART3 (PC4 TX, PC5 RX) */
+	gps_tx_active: usart3_tx_pc4 {
 		pinmux = <STM32_PINMUX('C', 4, AF7)>;
 		bias-disable;
 	};
-	usart3_rx_pc5: usart3_rx_pc5 {
+	gps_rx_active: usart3_rx_pc5 {
 		pinmux = <STM32_PINMUX('C', 5, AF7)>;
 		bias-disable;
 	};
-	usart3_sleep_pc4: usart3_sleep_pc4 {
+	gps_tx_sleep: usart3_sleep_pc4 {
 		pinmux = <STM32_PINMUX('C', 4, ANALOG)>;
 	};
-	usart3_sleep_pc5: usart3_sleep_pc5 {
+	gps_rx_sleep: usart3_sleep_pc5 {
 		pinmux = <STM32_PINMUX('C', 5, ANALOG)>;
 	};
 
-	/* SDMMC1 — SD Card (4-bit wide bus) */
-	sdmmc1_d0_pc8: sdmmc1_d0_pc8 {
+	/* SD Card via SDMMC1 (4-bit wide bus) */
+	sd_d0_active: sdmmc1_d0_pc8 {
 		pinmux = <STM32_PINMUX('C', 8, AF12)>;
 		bias-pull-up;
 		slew-rate = "very-high-speed";
 	};
-	sdmmc1_d1_pc9: sdmmc1_d1_pc9 {
+	sd_d1_active: sdmmc1_d1_pc9 {
 		pinmux = <STM32_PINMUX('C', 9, AF12)>;
 		bias-pull-up;
 		slew-rate = "very-high-speed";
 	};
-	sdmmc1_d2_pc10: sdmmc1_d2_pc10 {
+	sd_d2_active: sdmmc1_d2_pc10 {
 		pinmux = <STM32_PINMUX('C', 10, AF12)>;
 		bias-pull-up;
 		slew-rate = "very-high-speed";
 	};
-	sdmmc1_d3_pc11: sdmmc1_d3_pc11 {
+	sd_d3_active: sdmmc1_d3_pc11 {
 		pinmux = <STM32_PINMUX('C', 11, AF12)>;
 		bias-pull-up;
 		slew-rate = "very-high-speed";
 	};
-	sdmmc1_ck_pc12: sdmmc1_ck_pc12 {
+	sd_ck_active: sdmmc1_ck_pc12 {
 		pinmux = <STM32_PINMUX('C', 12, AF12)>;
 		bias-disable;
 		slew-rate = "very-high-speed";
 	};
-	sdmmc1_cmd_pd2: sdmmc1_cmd_pd2 {
+	sd_cmd_active: sdmmc1_cmd_pd2 {
 		pinmux = <STM32_PINMUX('D', 2, AF12)>;
 		bias-pull-up;
 		slew-rate = "very-high-speed";
 	};
-	sdmmc1_sleep_pc8: sdmmc1_sleep_pc8 {
+	sd_d0_sleep: sdmmc1_sleep_pc8 {
 		pinmux = <STM32_PINMUX('C', 8, ANALOG)>;
 	};
-	sdmmc1_sleep_pc9: sdmmc1_sleep_pc9 {
+	sd_d1_sleep: sdmmc1_sleep_pc9 {
 		pinmux = <STM32_PINMUX('C', 9, ANALOG)>;
 	};
-	sdmmc1_sleep_pc10: sdmmc1_sleep_pc10 {
+	sd_d2_sleep: sdmmc1_sleep_pc10 {
 		pinmux = <STM32_PINMUX('C', 10, ANALOG)>;
 	};
-	sdmmc1_sleep_pc11: sdmmc1_sleep_pc11 {
+	sd_d3_sleep: sdmmc1_sleep_pc11 {
 		pinmux = <STM32_PINMUX('C', 11, ANALOG)>;
 	};
-	sdmmc1_sleep_pc12: sdmmc1_sleep_pc12 {
+	sd_ck_sleep: sdmmc1_sleep_pc12 {
 		pinmux = <STM32_PINMUX('C', 12, ANALOG)>;
 	};
-	sdmmc1_sleep_pd2: sdmmc1_sleep_pd2 {
+	sd_cmd_sleep: sdmmc1_sleep_pd2 {
 		pinmux = <STM32_PINMUX('D', 2, ANALOG)>;
 	};
 
@@ -183,21 +219,21 @@
 	 * Sharp LS027B7DH01A LCD via SPI2
 	 * ============================================================== */
 
-	/* SPI2 — Sharp LCD (PB10 SCLK, PC3 SI/MOSI, write-only) */
-	spi2_sck_pb10: spi2_sck_pb10 {
+	/* Sharp LCD (PB10 SCLK, PC3 SI/MOSI, write-only) */
+	lcd_sclk_active: spi2_sck_pb10 {
 		pinmux = <STM32_PINMUX('B', 10, AF5)>;
 		bias-disable;
 		slew-rate = "very-high-speed";
 	};
-	spi2_mosi_pc3: spi2_mosi_pc3 {
+	lcd_si_active: spi2_mosi_pc3 {
 		pinmux = <STM32_PINMUX('C', 3, AF5)>;
 		bias-disable;
 		slew-rate = "very-high-speed";
 	};
-	spi2_sleep_pb10: spi2_sleep_pb10 {
+	lcd_sclk_sleep: spi2_sleep_pb10 {
 		pinmux = <STM32_PINMUX('B', 10, ANALOG)>;
 	};
-	spi2_sleep_pc3: spi2_sleep_pc3 {
+	lcd_si_sleep: spi2_sleep_pc3 {
 		pinmux = <STM32_PINMUX('C', 3, ANALOG)>;
 	};
 };
