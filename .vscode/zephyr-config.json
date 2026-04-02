@@ -29,6 +29,16 @@
             "name": "display",
             "path": "project/samples/display",
             "description": "Sharp LS027B7DH01A memory LCD test"
+        },
+        {
+            "name": "button",
+            "path": "project/samples/button",
+            "description": "Basic button press detection (Zephyr basic/button)"
+        },
+        {
+            "name": "usb_shell",
+            "path": "project/samples/usb_shell",
+            "description": "Zephyr interactive shell over USB CDC ACM"
         }
     ],
     "boards": [

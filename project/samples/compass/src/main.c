@@ -15,8 +15,10 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/uart.h>
+#include <zephyr/usb/usb_device.h>
 #include <zephyr/logging/log.h>
-#include <math.h>
+#define M_PI 3.14159265
 
 LOG_MODULE_REGISTER(compass, LOG_LEVEL_INF);
 
@@ -28,6 +30,24 @@ LOG_MODULE_REGISTER(compass, LOG_LEVEL_INF);
 static const struct device *accel_dev = DEVICE_DT_GET(DT_NODELABEL(lsm6dso));
 static const struct device *mag_dev   = DEVICE_DT_GET(DT_NODELABEL(lis3mdl));
 static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
+
+/* 3V3 enable: PB15 active-high (sensors live on this rail).
+ * Must be powered on before sensor drivers init at POST_KERNEL. */
+static const struct gpio_dt_spec en_3v3 =
+	GPIO_DT_SPEC_GET(DT_NODELABEL(power_3v3), enable_gpios);
+
+static int power_on_3v3(void)
+{
+	if (!gpio_is_ready_dt(&en_3v3)) {
+		return -ENODEV;
+	}
+	gpio_pin_configure_dt(&en_3v3, GPIO_OUTPUT_ACTIVE);
+	k_busy_wait(5000);
+	return 0;
+}
+
+/* Run at POST_KERNEL priority 0 — after GPIO driver, before sensor drivers. */
+SYS_INIT(power_on_3v3, POST_KERNEL, 0);
 
 /* Calibration data */
 static struct {
@@ -200,6 +220,18 @@ int main(void)
 {
 	float ax, ay, az, mx, my, mz;
 
+	/* Enable USB CDC ACM console */
+	const struct device *usb_dev = DEVICE_DT_GET_ONE(zephyr_cdc_acm_uart);
+
+	if (device_is_ready(usb_dev)) {
+		usb_enable(NULL);
+		uint32_t dtr = 0;
+		while (!dtr) {
+			uart_line_ctrl_get(usb_dev, UART_LINE_CTRL_DTR, &dtr);
+			k_sleep(K_MSEC(100));
+		}
+	}
+
 	if (!device_is_ready(accel_dev)) {
 		LOG_ERR("LSM6DSO not ready");
 		return -ENODEV;
@@ -225,6 +257,9 @@ int main(void)
 	cal.offset[0] = cal.offset[1] = cal.offset[2] = 0.0f;
 	cal.scale[0]  = cal.scale[1]  = cal.scale[2]  = 1.0f;
 	cal.valid = false;
+
+	// run_calibration();
+
 
 	while (1) {
 		if (cal_requested) {

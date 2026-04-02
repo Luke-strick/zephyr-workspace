@@ -17,6 +17,9 @@
             "gdbPath": "${config:zephyr.sdkPath}/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
             "preLaunchTask": "Zephyr: Build",
             "runToEntryPoint": "main",
+            "overrideResetCommands": [
+                "monitor reset halt"
+            ],
             "postRestartCommands": [
                 "monitor reset halt"
             ]

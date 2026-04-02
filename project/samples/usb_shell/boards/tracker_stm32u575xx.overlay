@@ -1,0 +1,33 @@
+/*
+ * Route the Zephyr console/shell to USB CDC ACM on the Tracker board.
+ * The USB OTG FS peripheral (PA11/PA12) is already enabled in tracker.dts.
+ *
+ * Power domains are removed from peripheral nodes to avoid init-ordering
+ * conflicts (pd_gpio needs POST_KERNEL, but UARTs init at PRE_KERNEL).
+ * The application powers the domains on manually before using the devices.
+ */
+
+&zephyr_udc0 {
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
+};
+
+/ {
+	chosen {
+		zephyr,console = &cdc_acm_uart0;
+		zephyr,shell-uart = &cdc_acm_uart0;
+	};
+};
+
+/* Remove power-domain dependencies so init priority check passes.
+ * main.c toggles PB15 (3V3) and PA8 (5V) before touching these. */
+&usart3 { /delete-property/ power-domains; };
+&i2c1   { /delete-property/ power-domains; };
+&i2c3   { /delete-property/ power-domains; };
+&spi1   { /delete-property/ power-domains; };
+&spi2   { /delete-property/ power-domains; };
+&lora   { /delete-property/ power-domains; };
+&lsm6dso { /delete-property/ power-domains; };
+&lis3mdl { /delete-property/ power-domains; };
+&ls0xx  { /delete-property/ power-domains; };

@@ -1,0 +1,6 @@
+/*
+ * Board overlay for samples/basic/button on the Tracker (STM32U575RGT6).
+ *
+ * sw0 → button1 (PH3, active-low, pull-up) is already defined in tracker.dts.
+ * The sample's led0 is optional; this board has no dedicated status LED.
+ */

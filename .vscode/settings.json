@@ -2,5 +2,7 @@
     "terminal.integrated.defaultProfile.linux": "Zephyr IDE Terminal",
 
     // Path to your Zephyr SDK installation (used for arm-zephyr-eabi-gdb in launch.json)
-    "zephyr.sdkPath": "/home/luke/.zephyr_ide/toolchains/zephyr-sdk-0.17.3"
+    "zephyr.sdkPath": "/home/luke/.zephyr_ide/toolchains/zephyr-sdk-0.17.3",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/.vscode/compile_commands.json",
+    "cmake.configureOnOpen": false
 }

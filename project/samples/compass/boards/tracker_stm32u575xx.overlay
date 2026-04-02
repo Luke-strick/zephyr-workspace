@@ -1,0 +1,29 @@
+/*
+ * Route console/log output to USB CDC ACM on the Tracker board.
+ *
+ * Power domains are removed from peripheral nodes to avoid init-ordering
+ * conflicts. main.c drives the power GPIOs directly.
+ */
+
+&zephyr_udc0 {
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
+};
+
+/ {
+	chosen {
+		zephyr,console = &cdc_acm_uart0;
+		zephyr,shell-uart = &cdc_acm_uart0;
+	};
+};
+
+&usart3 { /delete-property/ power-domains; };
+&i2c1   { /delete-property/ power-domains; };
+&i2c3   { /delete-property/ power-domains; };
+&spi1   { /delete-property/ power-domains; };
+&spi2   { /delete-property/ power-domains; };
+&lora   { /delete-property/ power-domains; };
+&lsm6dso { /delete-property/ power-domains; };
+&lis3mdl { /delete-property/ power-domains; };
+&ls0xx  { /delete-property/ power-domains; };

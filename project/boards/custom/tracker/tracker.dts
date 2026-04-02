@@ -225,9 +225,9 @@ zephyr_udc0: &usbotg_fs {
 	power-domains = <&power_3v3>;
 	status = "okay";
 
-	lis3mdl: lis3mdl@1c {
+	lis3mdl: lis3mdl@1e {
 		compatible = "st,lis3mdl-magn";
-		reg = <0x1c>;
+		reg = <0x1e>;
 		power-domains = <&power_3v3>;
 	};
 };
