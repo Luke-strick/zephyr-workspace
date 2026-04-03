@@ -232,13 +232,15 @@ zephyr_udc0: &usbotg_fs {
 	};
 };
 
-/* USART3 — GPS MAX-M10S-00B (PC4 TX, PC5 RX) */
+/* USART3 — GPS MAX-M10S-00B (PC4 TX, PC5 RX)
+ * No power-domains here: UART inits at PRE_KERNEL_1, before the
+ * GPIO power-domain driver (POST_KERNEL).  The application must
+ * ensure the 3V3 rail is on before talking to the GPS. */
 &usart3 {
 	pinctrl-0 = <&gps_tx_active &gps_rx_active>;
 	pinctrl-1 = <&gps_tx_sleep &gps_rx_sleep>;
 	pinctrl-names = "default", "sleep";
 	current-speed = <9600>;
-	power-domains = <&power_3v3>;
 	status = "okay";
 
 	gnss: gnss-nmea-generic {

@@ -9,9 +9,9 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
-#include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/usb/usb_device.h>
+#include <zephyr/pm/device_runtime.h>
 #include <zephyr/display/cfb.h>
 #include <zephyr/logging/log.h>
 #include <stdio.h>
@@ -20,35 +20,15 @@ LOG_MODULE_REGISTER(display_sample, LOG_LEVEL_INF);
 
 static const struct device *display = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
 
-/* 3V3 enable: PB15 active-high */
-static const struct gpio_dt_spec en_3v3 =
-	GPIO_DT_SPEC_GET(DT_NODELABEL(power_3v3), enable_gpios);
-
-/* 5V enable: PA8 active-high (LCD lives on this rail) */
-static const struct gpio_dt_spec en_5v =
-	GPIO_DT_SPEC_GET(DT_NODELABEL(power_5v), enable_gpios);
-
-static int power_on_rails(void)
-{
-	if (gpio_is_ready_dt(&en_3v3)) {
-		gpio_pin_configure_dt(&en_3v3, GPIO_OUTPUT_ACTIVE);
-	}
-	k_busy_wait(50000); /* 50ms for rails to stabilize */
-	if (gpio_is_ready_dt(&en_5v)) {
-		gpio_pin_configure_dt(&en_5v, GPIO_OUTPUT_ACTIVE);
-	}
-	k_busy_wait(50000); /* 50ms for rails to stabilize */
-	return 0;
-}
-
-/* Run before peripheral driver inits */
-SYS_INIT(power_on_rails, POST_KERNEL, 0);
-
 int main(void)
 {
 	int ret;
 	uint16_t rows, cols;
 	uint8_t font_width, font_height;
+
+	/* Power on 3V3 and 5V rails */
+	pm_device_runtime_get(DEVICE_DT_GET(DT_NODELABEL(power_3v3)));
+	pm_device_runtime_get(DEVICE_DT_GET(DT_NODELABEL(power_5v)));
 
 	/* Enable USB CDC ACM console */
 	const struct device *usb_dev = DEVICE_DT_GET_ONE(zephyr_cdc_acm_uart);

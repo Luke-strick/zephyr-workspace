@@ -9,20 +9,12 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
-#include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/usb/usb_device.h>
+#include <zephyr/pm/device_runtime.h>
 #include <zephyr/logging/log.h>
 
 LOG_MODULE_REGISTER(usb_shell, LOG_LEVEL_INF);
-
-/* 3V3 enable: PB15 active-high */
-static const struct gpio_dt_spec en_3v3 =
-	GPIO_DT_SPEC_GET(DT_NODELABEL(power_3v3), enable_gpios);
-
-/* 5V enable: PA8 active-high */
-static const struct gpio_dt_spec en_5v =
-	GPIO_DT_SPEC_GET(DT_NODELABEL(power_5v), enable_gpios);
 
 int main(void)
 {
@@ -39,18 +31,9 @@ int main(void)
 		return ret;
 	}
 
-	/* Drive power enables directly */
-	if (gpio_is_ready_dt(&en_3v3)) {
-		gpio_pin_configure_dt(&en_3v3, GPIO_OUTPUT_ACTIVE);
-		LOG_INF("3V3 rail enabled (PB15)");
-	}
-	if (gpio_is_ready_dt(&en_5v)) {
-		gpio_pin_configure_dt(&en_5v, GPIO_OUTPUT_ACTIVE);
-		LOG_INF("5V rail enabled (PA8)");
-	}
-
-	/* Give sensors time to power up */
-	k_sleep(K_MSEC(50));
+	/* Power on both rails */
+	pm_device_runtime_get(DEVICE_DT_GET(DT_NODELABEL(power_3v3)));
+	pm_device_runtime_get(DEVICE_DT_GET(DT_NODELABEL(power_5v)));
 
 	/* Wait for host to open the port (DTR set). */
 	uint32_t dtr = 0;

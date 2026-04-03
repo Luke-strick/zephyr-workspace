@@ -1,12 +1,11 @@
 /*
- * Tilt-compensated compass — LSM6DSOTR + LIS3MDLTR
+ * Magnetometer calibration tool — LIS3MDLTR
  *
- * Press Button 1 (sw0) to start magnetometer calibration.
- * Rotate the device slowly in all orientations for ~15 seconds.
- * After calibration the console prints a continuous heading that
- * stays correct even when the board is tilted.
+ * Calibrates for hard-iron and soft-iron errors, then prints a
+ * flat (2D) heading to verify the result.  No accelerometer is used,
+ * so the board must be kept level for accurate heading readings.
  *
- * Hard-iron + basic soft-iron (axis scaling) calibration is applied.
+ * Press Button 1 (sw0) at any time to re-run calibration.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -19,28 +18,28 @@
 #include <zephyr/usb/usb_device.h>
 #include <zephyr/pm/device_runtime.h>
 #include <zephyr/logging/log.h>
-#define M_PI 3.14159265
+#include <math.h>
 
-LOG_MODULE_REGISTER(compass, LOG_LEVEL_INF);
+#define M_PI 3.14159265f
+
+LOG_MODULE_REGISTER(mag_cal, LOG_LEVEL_INF);
 
 /* Calibration duration (ms) */
 #define CAL_DURATION_MS 15000
 /* Heading print interval (ms) */
 #define HEADING_INTERVAL_MS 200
 
-static const struct device *accel_dev = DEVICE_DT_GET(DT_NODELABEL(lsm6dso));
-static const struct device *mag_dev   = DEVICE_DT_GET(DT_NODELABEL(lis3mdl));
+static const struct device *mag_dev = DEVICE_DT_GET(DT_NODELABEL(lis3mdl));
 static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
 
 /* Calibration data */
 static struct {
-	float offset[3]; /* hard-iron offsets  */
-	float scale[3];  /* soft-iron scaling  */
+	float offset[3]; /* hard-iron offsets */
+	float scale[3];  /* soft-iron axis scaling */
 	bool valid;
 } cal;
 
 static volatile bool cal_requested;
-
 static struct gpio_callback btn_cb_data;
 
 static void button_pressed(const struct device *dev, struct gpio_callback *cb,
@@ -54,25 +53,6 @@ static void button_pressed(const struct device *dev, struct gpio_callback *cb,
 static inline float sv(const struct sensor_value *v)
 {
 	return (float)v->val1 + (float)v->val2 / 1000000.0f;
-}
-
-static int read_accel(float *ax, float *ay, float *az)
-{
-	struct sensor_value v[3];
-	int ret;
-
-	ret = sensor_sample_fetch_chan(accel_dev, SENSOR_CHAN_ACCEL_XYZ);
-	if (ret) {
-		return ret;
-	}
-	sensor_channel_get(accel_dev, SENSOR_CHAN_ACCEL_X, &v[0]);
-	sensor_channel_get(accel_dev, SENSOR_CHAN_ACCEL_Y, &v[1]);
-	sensor_channel_get(accel_dev, SENSOR_CHAN_ACCEL_Z, &v[2]);
-
-	*ax = sv(&v[0]);
-	*ay = sv(&v[1]);
-	*az = sv(&v[2]);
-	return 0;
 }
 
 static int read_mag(float *mx, float *my, float *mz)
@@ -101,6 +81,7 @@ static void run_calibration(void)
 	float mag_min[3] = { 1e9f,  1e9f,  1e9f};
 	float mag_max[3] = {-1e9f, -1e9f, -1e9f};
 	float m[3];
+	int samples = 0;
 	int64_t end;
 
 	LOG_INF("=== CALIBRATION START ===");
@@ -119,16 +100,17 @@ static void run_calibration(void)
 					mag_max[i] = m[i];
 				}
 			}
+			samples++;
 		}
 		k_msleep(20);
 	}
 
-	/* Hard-iron offsets */
+	/* Hard-iron offsets: centre of the min/max box */
 	for (int i = 0; i < 3; i++) {
 		cal.offset[i] = (mag_max[i] + mag_min[i]) / 2.0f;
 	}
 
-	/* Soft-iron scale — normalise each axis range to the average range */
+	/* Soft-iron scale: normalise each axis range to the average range */
 	float range[3], avg_range;
 
 	for (int i = 0; i < 3; i++) {
@@ -142,13 +124,18 @@ static void run_calibration(void)
 
 	cal.valid = true;
 
-	LOG_INF("=== CALIBRATION DONE ===");
-	LOG_INF("Offsets: %.4f  %.4f  %.4f",
+	LOG_INF("=== CALIBRATION DONE  (%d samples) ===", samples);
+	LOG_INF("Hard-iron offsets: %.4f  %.4f  %.4f",
 		(double)cal.offset[0], (double)cal.offset[1],
 		(double)cal.offset[2]);
-	LOG_INF("Scale:   %.4f  %.4f  %.4f",
+	LOG_INF("Soft-iron scale:   %.4f  %.4f  %.4f",
 		(double)cal.scale[0], (double)cal.scale[1],
 		(double)cal.scale[2]);
+	LOG_INF("Min: %.4f  %.4f  %.4f",
+		(double)mag_min[0], (double)mag_min[1], (double)mag_min[2]);
+	LOG_INF("Max: %.4f  %.4f  %.4f",
+		(double)mag_max[0], (double)mag_max[1], (double)mag_max[2]);
+	LOG_INF("Press Button 1 to re-calibrate at any time.\n");
 }
 
 /* ------------------------------------------------------------------ */
@@ -165,8 +152,7 @@ static const char *heading_label(float h)
 	return "NW";
 }
 
-static float compute_heading(float ax, float ay, float az,
-			     float mx, float my, float mz)
+static float compute_heading(float mx, float my, float mz)
 {
 	/* Apply calibration */
 	if (cal.valid) {
@@ -175,21 +161,8 @@ static float compute_heading(float ax, float ay, float az,
 		mz = (mz - cal.offset[2]) * cal.scale[2];
 	}
 
-	/* Roll and pitch from accelerometer */
-	float roll  = atan2f(ay, az);
-	float pitch = atan2f(-ax, sqrtf(ay * ay + az * az));
-
-	/* Tilt-compensated magnetometer projection onto the horizontal plane */
-	float cos_r = cosf(roll);
-	float sin_r = sinf(roll);
-	float cos_p = cosf(pitch);
-	float sin_p = sinf(pitch);
-
-	float mx_h = mx * cos_p + mz * sin_p;
-	float my_h = mx * sin_r * sin_p + my * cos_r - mz * sin_r * cos_p;
-
-	/* Heading in degrees [0, 360) */
-	float heading = atan2f(-my_h, mx_h) * (180.0f / (float)M_PI);
+	/* Simple 2D heading — assumes device is level (X-Y is horizontal) */
+	float heading = atan2f(-my, mx) * (180.0f / M_PI);
 
 	if (heading < 0.0f) {
 		heading += 360.0f;
@@ -201,7 +174,7 @@ static float compute_heading(float ax, float ay, float az,
 
 int main(void)
 {
-	float ax, ay, az, mx, my, mz;
+	float mx, my, mz;
 
 	/* Power on 3V3 rail (sensors) */
 	const struct device *pwr_3v3 = DEVICE_DT_GET(DT_NODELABEL(power_3v3));
@@ -220,10 +193,6 @@ int main(void)
 		}
 	}
 
-	if (!device_is_ready(accel_dev)) {
-		LOG_ERR("LSM6DSO not ready");
-		return -ENODEV;
-	}
 	if (!device_is_ready(mag_dev)) {
 		LOG_ERR("LIS3MDL not ready");
 		return -ENODEV;
@@ -237,9 +206,9 @@ int main(void)
 		gpio_add_callback(button.port, &btn_cb_data);
 	}
 
-	LOG_INF("Tilt-compensated compass sample");
-	LOG_INF("Press Button 1 to calibrate, then rotate the board.");
-	LOG_INF("Readings will start immediately (uncalibrated until you press the button).\n");
+	LOG_INF("Magnetometer calibration sample");
+	LOG_INF("Starting calibration — rotate the board slowly in all directions.");
+	LOG_INF("Keep the board LEVEL when reading heading (no tilt compensation).\n");
 
 	/* Start with identity calibration */
 	cal.offset[0] = cal.offset[1] = cal.offset[2] = 0.0f;
@@ -248,25 +217,25 @@ int main(void)
 
 	run_calibration();
 
-
 	while (1) {
 		if (cal_requested) {
 			cal_requested = false;
 			run_calibration();
 		}
 
-		if (read_accel(&ax, &ay, &az) || read_mag(&mx, &my, &mz)) {
+		if (read_mag(&mx, &my, &mz)) {
 			LOG_ERR("Sensor read failed");
 			k_msleep(HEADING_INTERVAL_MS);
 			continue;
 		}
 
-		float heading = compute_heading(ax, ay, az, mx, my, mz);
+		float heading = compute_heading(mx, my, mz);
 
-		LOG_INF("Heading: %6.1f°  %s   %s",
+		LOG_INF("Heading: %6.1f  %s   [%s]  raw: %.3f %.3f %.3f",
 			(double)heading,
 			heading_label(heading),
-			cal.valid ? "[cal]" : "[uncal]");
+			cal.valid ? "cal" : "uncal",
+			(double)mx, (double)my, (double)mz);
 
 		k_msleep(HEADING_INTERVAL_MS);
 	}
