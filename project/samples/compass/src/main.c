@@ -1,12 +1,16 @@
 /*
- * Tilt-compensated compass — LSM6DSOTR + LIS3MDLTR
+ * Tilt-compensated compass — LSM6DSOTR (accel/gyro) + LIS3MDLTR (mag)
  *
- * Press Button 1 (sw0) to start magnetometer calibration.
- * Rotate the device slowly in all orientations for ~15 seconds.
- * After calibration the console prints a continuous heading that
- * stays correct even when the board is tilted.
+ * Hardcoded calibration:
+ *   - Gyro zero-rate bias (from acc_calibration sample)
+ *   - Mag hard-iron offset + soft-iron matrix (from mag_calibration sample)
  *
- * Hard-iron + basic soft-iron (axis scaling) calibration is applied.
+ * Roll and pitch are computed from a complementary filter (accel + gyro).
+ * The mag vector is tilt-compensated using roll/pitch before computing heading.
+ *
+ * Configure IMU_TO_MAG_ROT below to match the physical mounting of your sensors.
+ *
+ * Output (20 Hz): "AHR:<roll>,<pitch>,<heading>  degrees"
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,261 +18,243 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/sensor.h>
-#include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/usb/usb_device.h>
 #include <zephyr/pm/device_runtime.h>
-#include <zephyr/logging/log.h>
-#define M_PI 3.14159265
+#include <math.h>
 
-LOG_MODULE_REGISTER(compass, LOG_LEVEL_INF);
+#define M_PI  3.14159265f
+#define D2R   (M_PI / 180.0f)
+#define R2D   (180.0f / M_PI)
 
-/* Calibration duration (ms) */
-#define CAL_DURATION_MS 15000
-/* Heading print interval (ms) */
-#define HEADING_INTERVAL_MS 200
+/* ============================================================
+ * SENSOR ORIENTATION CONFIGURATION
+ *
+ * IMU_TO_MAG_ROT is a 3x3 rotation matrix that transforms a
+ * vector from the LSM6DSO (accel/gyro) frame into the LIS3MDLTR
+ * (mag) frame.  Set this to match how the two chips are mounted
+ * relative to each other on your PCB.
+ *
+ * Common Z-axis presets (chip top-side up, rotated around Z):
+ *
+ *   0° (aligned):
+ *     { {1, 0, 0}, {0, 1, 0}, {0, 0, 1} }
+ *
+ *   90° CCW (IMU rotated 90° relative to mag):
+ *     { {0, 1, 0}, {-1, 0, 0}, {0, 0, 1} }
+ *
+ *   180°:
+ *     { {-1, 0, 0}, {0, -1, 0}, {0, 0, 1} }
+ *
+ *   270° CCW (= 90° CW):
+ *     { {0, -1, 0}, {1, 0, 0}, {0, 0, 1} }
+ *
+ *   IMU mounted upside-down (flipped around X, then 0° Z):
+ *     { {1, 0, 0}, {0, -1, 0}, {0, 0, -1} }
+ * ============================================================ */
+static const float IMU_TO_MAG_ROT[3][3] = {
+	{-1.0f,  0.0f,  0.0f},
+	{0.0f,  -1.0f,  0.0f},
+	{0.0f,  0.0f,  1.0f},
+};
 
-static const struct device *accel_dev = DEVICE_DT_GET(DT_NODELABEL(lsm6dso));
-static const struct device *mag_dev   = DEVICE_DT_GET(DT_NODELABEL(lis3mdl));
-static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
+/* ============================================================
+ * GYRO ZERO-RATE BIAS  (from acc_calibration, in mdps)
+ * Convert: mdps * (pi/180) / 1000 = rad/s
+ * ============================================================ */
+static const float GYRO_BIAS_X =  288.0f * D2R / 1000.0f;
+static const float GYRO_BIAS_Y = -215.0f * D2R / 1000.0f;
+static const float GYRO_BIAS_Z = -599.0f * D2R / 1000.0f;
 
-/* Calibration data */
-static struct {
-	float offset[3]; /* hard-iron offsets  */
-	float scale[3];  /* soft-iron scaling  */
-	bool valid;
-} cal;
+/* ============================================================
+ * MAG CALIBRATION  (from mag_calibration sample, in µT)
+ * Hard-iron offset applied first, then soft-iron matrix.
+ * ============================================================ */
+static const float MAG_HARD_IRON[3] = {-49.20f, 49.96f, -27.15f};
 
-static volatile bool cal_requested;
+static const float MAG_SOFT_IRON[3][3] = {
+	{+0.979f, +0.044f,  -0.0015f},
+	{+0.044f, +1.005f,  -0.004f },
+	{-0.015f, -0.004f,  +1.019f },
+};
 
-static struct gpio_callback btn_cb_data;
+/* ============================================================
+ * COMPLEMENTARY FILTER
+ * ALPHA: how much to trust the gyro vs accel (0–1).
+ * Higher = smoother but slower to correct drift.
+ * ============================================================ */
+#define ALPHA  0.96f
+#define DT_MS  50
+#define DT_S   (DT_MS / 1000.0f)
 
-static void button_pressed(const struct device *dev, struct gpio_callback *cb,
-			   uint32_t pins)
-{
-	cal_requested = true;
-}
+/* ---------------------------------------------------------- */
 
-/* ------------------------------------------------------------------ */
+static const struct device *imu_dev = DEVICE_DT_GET(DT_NODELABEL(lsm6dso));
+static const struct device *mag_dev = DEVICE_DT_GET(DT_NODELABEL(lis3mdl));
 
 static inline float sv(const struct sensor_value *v)
 {
 	return (float)v->val1 + (float)v->val2 / 1000000.0f;
 }
 
-static int read_accel(float *ax, float *ay, float *az)
+static int read_imu(float *ax, float *ay, float *az,
+		    float *gx, float *gy, float *gz)
 {
-	struct sensor_value v[3];
-	int ret;
+	struct sensor_value a[3], g[3];
 
-	ret = sensor_sample_fetch_chan(accel_dev, SENSOR_CHAN_ACCEL_XYZ);
-	if (ret) {
-		return ret;
+	if (sensor_sample_fetch_chan(imu_dev, SENSOR_CHAN_ACCEL_XYZ) ||
+	    sensor_sample_fetch_chan(imu_dev, SENSOR_CHAN_GYRO_XYZ)) {
+		return -EIO;
 	}
-	sensor_channel_get(accel_dev, SENSOR_CHAN_ACCEL_X, &v[0]);
-	sensor_channel_get(accel_dev, SENSOR_CHAN_ACCEL_Y, &v[1]);
-	sensor_channel_get(accel_dev, SENSOR_CHAN_ACCEL_Z, &v[2]);
 
-	*ax = sv(&v[0]);
-	*ay = sv(&v[1]);
-	*az = sv(&v[2]);
+	sensor_channel_get(imu_dev, SENSOR_CHAN_ACCEL_X, &a[0]);
+	sensor_channel_get(imu_dev, SENSOR_CHAN_ACCEL_Y, &a[1]);
+	sensor_channel_get(imu_dev, SENSOR_CHAN_ACCEL_Z, &a[2]);
+	sensor_channel_get(imu_dev, SENSOR_CHAN_GYRO_X,  &g[0]);
+	sensor_channel_get(imu_dev, SENSOR_CHAN_GYRO_Y,  &g[1]);
+	sensor_channel_get(imu_dev, SENSOR_CHAN_GYRO_Z,  &g[2]);
+
+	*ax = sv(&a[0]); *ay = sv(&a[1]); *az = sv(&a[2]);
+	*gx = sv(&g[0]); *gy = sv(&g[1]); *gz = sv(&g[2]);
 	return 0;
 }
 
 static int read_mag(float *mx, float *my, float *mz)
 {
 	struct sensor_value v[3];
-	int ret;
 
-	ret = sensor_sample_fetch_chan(mag_dev, SENSOR_CHAN_MAGN_XYZ);
-	if (ret) {
-		return ret;
+	if (sensor_sample_fetch_chan(mag_dev, SENSOR_CHAN_MAGN_XYZ)) {
+		return -EIO;
 	}
+
 	sensor_channel_get(mag_dev, SENSOR_CHAN_MAGN_X, &v[0]);
 	sensor_channel_get(mag_dev, SENSOR_CHAN_MAGN_Y, &v[1]);
 	sensor_channel_get(mag_dev, SENSOR_CHAN_MAGN_Z, &v[2]);
 
-	*mx = sv(&v[0]);
-	*my = sv(&v[1]);
-	*mz = sv(&v[2]);
+	/* Gauss -> µT */
+	*mx = sv(&v[0]) * 100.0f;
+	*my = sv(&v[1]) * 100.0f;
+	*mz = sv(&v[2]) * 100.0f;
 	return 0;
 }
 
-/* ------------------------------------------------------------------ */
-
-static void run_calibration(void)
+/* Apply a 3x3 matrix to a vector in-place */
+static void mat3_apply(const float m[3][3],
+		       float ix, float iy, float iz,
+		       float *ox, float *oy, float *oz)
 {
-	float mag_min[3] = { 1e9f,  1e9f,  1e9f};
-	float mag_max[3] = {-1e9f, -1e9f, -1e9f};
-	float m[3];
-	int64_t end;
-
-	LOG_INF("=== CALIBRATION START ===");
-	LOG_INF("Slowly rotate the device in all orientations for %d seconds.",
-		CAL_DURATION_MS / 1000);
-
-	end = k_uptime_get() + CAL_DURATION_MS;
-
-	while (k_uptime_get() < end) {
-		if (read_mag(&m[0], &m[1], &m[2]) == 0) {
-			for (int i = 0; i < 3; i++) {
-				if (m[i] < mag_min[i]) {
-					mag_min[i] = m[i];
-				}
-				if (m[i] > mag_max[i]) {
-					mag_max[i] = m[i];
-				}
-			}
-		}
-		k_msleep(20);
-	}
-
-	/* Hard-iron offsets */
-	for (int i = 0; i < 3; i++) {
-		cal.offset[i] = (mag_max[i] + mag_min[i]) / 2.0f;
-	}
-
-	/* Soft-iron scale — normalise each axis range to the average range */
-	float range[3], avg_range;
-
-	for (int i = 0; i < 3; i++) {
-		range[i] = (mag_max[i] - mag_min[i]) / 2.0f;
-	}
-	avg_range = (range[0] + range[1] + range[2]) / 3.0f;
-
-	for (int i = 0; i < 3; i++) {
-		cal.scale[i] = (range[i] > 1e-6f) ? (avg_range / range[i]) : 1.0f;
-	}
-
-	cal.valid = true;
-
-	LOG_INF("=== CALIBRATION DONE ===");
-	LOG_INF("Offsets: %.4f  %.4f  %.4f",
-		(double)cal.offset[0], (double)cal.offset[1],
-		(double)cal.offset[2]);
-	LOG_INF("Scale:   %.4f  %.4f  %.4f",
-		(double)cal.scale[0], (double)cal.scale[1],
-		(double)cal.scale[2]);
+	*ox = m[0][0]*ix + m[0][1]*iy + m[0][2]*iz;
+	*oy = m[1][0]*ix + m[1][1]*iy + m[1][2]*iz;
+	*oz = m[2][0]*ix + m[2][1]*iy + m[2][2]*iz;
 }
 
-/* ------------------------------------------------------------------ */
-
-static const char *heading_label(float h)
-{
-	if (h >= 337.5f || h < 22.5f)  return "N";
-	if (h < 67.5f)                 return "NE";
-	if (h < 112.5f)                return "E";
-	if (h < 157.5f)                return "SE";
-	if (h < 202.5f)                return "S";
-	if (h < 247.5f)                return "SW";
-	if (h < 292.5f)                return "W";
-	return "NW";
-}
-
-static float compute_heading(float ax, float ay, float az,
-			     float mx, float my, float mz)
-{
-	/* Apply calibration */
-	if (cal.valid) {
-		mx = (mx - cal.offset[0]) * cal.scale[0];
-		my = (my - cal.offset[1]) * cal.scale[1];
-		mz = (mz - cal.offset[2]) * cal.scale[2];
-	}
-
-	/* Roll and pitch from accelerometer */
-	float roll  = atan2f(ay, az);
-	float pitch = atan2f(-ax, sqrtf(ay * ay + az * az));
-
-	/* Tilt-compensated magnetometer projection onto the horizontal plane */
-	float cos_r = cosf(roll);
-	float sin_r = sinf(roll);
-	float cos_p = cosf(pitch);
-	float sin_p = sinf(pitch);
-
-	float mx_h = mx * cos_p + mz * sin_p;
-	float my_h = mx * sin_r * sin_p + my * cos_r - mz * sin_r * cos_p;
-
-	/* Heading in degrees [0, 360) */
-	float heading = atan2f(-my_h, mx_h) * (180.0f / (float)M_PI);
-
-	if (heading < 0.0f) {
-		heading += 360.0f;
-	}
-	return heading;
-}
-
-/* ------------------------------------------------------------------ */
+/* ---------------------------------------------------------- */
 
 int main(void)
 {
-	float ax, ay, az, mx, my, mz;
-
-	/* Power on 3V3 rail (sensors) */
 	const struct device *pwr_3v3 = DEVICE_DT_GET(DT_NODELABEL(power_3v3));
 
 	pm_device_runtime_get(pwr_3v3);
 
-	/* Enable USB CDC ACM console */
 	const struct device *usb_dev = DEVICE_DT_GET_ONE(zephyr_cdc_acm_uart);
 
 	if (device_is_ready(usb_dev)) {
 		usb_enable(NULL);
 		uint32_t dtr = 0;
+
 		while (!dtr) {
 			uart_line_ctrl_get(usb_dev, UART_LINE_CTRL_DTR, &dtr);
 			k_sleep(K_MSEC(100));
 		}
 	}
 
-	if (!device_is_ready(accel_dev)) {
-		LOG_ERR("LSM6DSO not ready");
+	if (!device_is_ready(imu_dev)) {
+		printk("LSM6DSO not ready\n");
 		return -ENODEV;
 	}
 	if (!device_is_ready(mag_dev)) {
-		LOG_ERR("LIS3MDL not ready");
+		printk("LIS3MDL not ready\n");
 		return -ENODEV;
 	}
 
-	/* Set up calibration button */
-	if (gpio_is_ready_dt(&button)) {
-		gpio_pin_configure_dt(&button, GPIO_INPUT);
-		gpio_pin_interrupt_configure_dt(&button, GPIO_INT_EDGE_TO_ACTIVE);
-		gpio_init_callback(&btn_cb_data, button_pressed, BIT(button.pin));
-		gpio_add_callback(button.port, &btn_cb_data);
+	struct sensor_value odr = { .val1 = 20, .val2 = 0 };
+
+	sensor_attr_set(imu_dev, SENSOR_CHAN_ACCEL_XYZ, SENSOR_ATTR_SAMPLING_FREQUENCY, &odr);
+	sensor_attr_set(imu_dev, SENSOR_CHAN_GYRO_XYZ,  SENSOR_ATTR_SAMPLING_FREQUENCY, &odr);
+
+	printk("Tilt-compensated compass starting...\n");
+
+	float ax, ay, az, gx, gy, gz, mx, my, mz;
+	float roll = 0.0f, pitch = 0.0f;
+
+	/* Seed roll/pitch from first accel reading */
+	if (read_imu(&ax, &ay, &az, &gx, &gy, &gz) == 0) {
+		float ax_m, ay_m, az_m;
+
+		mat3_apply(IMU_TO_MAG_ROT, ax, ay, az, &ax_m, &ay_m, &az_m);
+		roll  = atan2f(ay_m, az_m);
+		pitch = atan2f(-ax_m, sqrtf(ay_m*ay_m + az_m*az_m));
 	}
 
-	LOG_INF("Tilt-compensated compass sample");
-	LOG_INF("Press Button 1 to calibrate, then rotate the board.");
-	LOG_INF("Readings will start immediately (uncalibrated until you press the button).\n");
-
-	/* Start with identity calibration */
-	cal.offset[0] = cal.offset[1] = cal.offset[2] = 0.0f;
-	cal.scale[0]  = cal.scale[1]  = cal.scale[2]  = 1.0f;
-	cal.valid = false;
-
-	run_calibration();
-
-
 	while (1) {
-		if (cal_requested) {
-			cal_requested = false;
-			run_calibration();
-		}
-
-		if (read_accel(&ax, &ay, &az) || read_mag(&mx, &my, &mz)) {
-			LOG_ERR("Sensor read failed");
-			k_msleep(HEADING_INTERVAL_MS);
+		if (read_imu(&ax, &ay, &az, &gx, &gy, &gz) ||
+		    read_mag(&mx, &my, &mz)) {
+			k_msleep(DT_MS);
 			continue;
 		}
 
-		float heading = compute_heading(ax, ay, az, mx, my, mz);
+		/* Remove gyro bias */
+		gx -= GYRO_BIAS_X;
+		gy -= GYRO_BIAS_Y;
+		gz -= GYRO_BIAS_Z;
 
-		LOG_INF("Heading: %6.1f°  %s   %s",
-			(double)heading,
-			heading_label(heading),
-			cal.valid ? "[cal]" : "[uncal]");
+		/* Rotate accel and gyro into the mag frame */
+		float ax_m, ay_m, az_m;
+		float gx_m, gy_m, gz_m;
 
-		k_msleep(HEADING_INTERVAL_MS);
+		mat3_apply(IMU_TO_MAG_ROT, ax, ay, az, &ax_m, &ay_m, &az_m);
+		mat3_apply(IMU_TO_MAG_ROT, gx, gy, gz, &gx_m, &gy_m, &gz_m);
+
+		/* Accel-derived roll and pitch (radians) */
+		float roll_acc  = atan2f(ay_m, az_m);
+		float pitch_acc = atan2f(-ax_m, sqrtf(ay_m*ay_m + az_m*az_m));
+
+		/* Complementary filter */
+		roll  = ALPHA * (roll  + gx_m * DT_S) + (1.0f - ALPHA) * roll_acc;
+		pitch = ALPHA * (pitch + gy_m * DT_S) + (1.0f - ALPHA) * pitch_acc;
+
+		/* Apply mag hard-iron offset */
+		mx -= MAG_HARD_IRON[0];
+		my -= MAG_HARD_IRON[1];
+		mz -= MAG_HARD_IRON[2];
+
+		/* Apply mag soft-iron matrix */
+		float cx, cy, cz;
+
+		mat3_apply(MAG_SOFT_IRON, mx, my, mz, &cx, &cy, &cz);
+
+		/* Tilt compensation: project mag onto the horizontal plane */
+		float cos_r = cosf(roll);
+		float sin_r = sinf(roll);
+		float cos_p = cosf(pitch);
+		float sin_p = sinf(pitch);
+
+		float mx_h = cx * cos_p + cz * sin_p;
+		float my_h = cx * sin_r * sin_p + cy * cos_r - cz * sin_r * cos_p;
+
+		/* Heading [0, 360) */
+		float heading = atan2f(-my_h, mx_h) * R2D;
+
+		if (heading < 0.0f) {
+			heading += 360.0f;
+		}
+
+		printk("AHR:%8.2f,%8.2f,%8.2f\n",
+		       (double)(roll  * R2D),
+		       (double)(pitch * R2D),
+		       (double)heading);
+
+		k_msleep(DT_MS);
 	}
 
 	return 0;
