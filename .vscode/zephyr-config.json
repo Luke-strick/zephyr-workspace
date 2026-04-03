@@ -44,6 +44,11 @@
             "name": "mag_calibration",
             "path": "project/samples/mag_calibration",
             "description": "Magnetometer calibration"
+        },
+        {
+            "name": "acc_calibration",
+            "path": "project/samples/acc_calibration",
+            "description": "Accelerometer calibration"
         }
     ],
     "boards": [
