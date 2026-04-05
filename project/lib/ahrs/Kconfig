@@ -1,0 +1,35 @@
+config AHRS
+	bool "AHRS library (tilt-compensated compass)"
+	depends on SENSOR
+	select FPU
+	help
+	  Attitude and Heading Reference System combining an LSM6DSO
+	  accel/gyro with a LIS3MDL magnetometer. Provides roll, pitch,
+	  and tilt-compensated magnetic heading via a complementary filter.
+
+if AHRS
+
+config AHRS_ALPHA_X1000
+	int "Complementary filter alpha (× 1000)"
+	default 960
+	range 0 999
+	help
+	  Gyro trust factor for the complementary filter, scaled by 1000.
+	  960 means alpha = 0.96.  Higher values trust the gyro more
+	  (smoother but slower to correct drift).
+
+config AHRS_DT_MS
+	int "Filter sample period in milliseconds"
+	default 50
+	help
+	  Expected time between ahrs_update() calls.  Should match the
+	  rate at which the application calls the function (default 20 Hz).
+
+config AHRS_GYRO_DEADBAND_MRAD
+	int "Gyro deadband in milli-radians per second"
+	default 1
+	help
+	  Gyro readings below this magnitude (after bias removal) are
+	  clamped to zero to prevent yaw drift accumulation.
+
+endif # AHRS
