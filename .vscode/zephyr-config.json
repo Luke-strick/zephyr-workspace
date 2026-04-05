@@ -49,6 +49,11 @@
             "name": "acc_calibration",
             "path": "project/samples/acc_calibration",
             "description": "Accelerometer calibration"
+        },
+        {
+            "name": "lora",
+            "path": "project/samples/lora",
+            "description": "lora sample"
         }
     ],
     "boards": [

@@ -280,7 +280,7 @@ zephyr_udc0: &usbotg_fs {
 	ls0xx: ls0xx@0 {
 		compatible = "sharp,ls0xx";
 		reg = <0>;
-		spi-max-frequency = <2000000>;
+		spi-max-frequency = <4000000>;
 		width = <400>;
 		height = <240>;
 		extcomin-gpios  = <&gpiob 13 GPIO_ACTIVE_HIGH>;

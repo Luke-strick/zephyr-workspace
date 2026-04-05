@@ -1,0 +1,55 @@
+config DISPLAY_UI
+	bool "Display UI library"
+	depends on DISPLAY
+	help
+	  Framebuffer-based UI library for 1bpp displays. Provides
+	  large 7-segment digit rows with optional postfixes and labels.
+
+if DISPLAY_UI
+
+config DISPLAY_UI_FB_W
+	int "Physical display width in pixels"
+	default 400
+	help
+	  Width of the display as reported by the driver (landscape axis).
+
+config DISPLAY_UI_FB_H
+	int "Physical display height in pixels"
+	default 240
+	help
+	  Height of the display as reported by the driver (landscape axis).
+
+config DISPLAY_UI_PORTRAIT
+	bool "Portrait orientation (90 degree CCW software rotation)"
+	default y
+	help
+	  When enabled the virtual canvas is rotated so that FB_W becomes
+	  the tall axis. Useful for landscape-wired displays mounted upright.
+
+config DISPLAY_UI_ROWS
+	int "Number of digit rows"
+	default 3
+	range 1 8
+
+config DISPLAY_UI_DIGIT_T
+	int "7-segment stroke thickness in virtual pixels"
+	default 10
+
+config DISPLAY_UI_COL_GAP
+	int "Pixel gap between digits within a row"
+	default 8
+
+config DISPLAY_UI_ROW_INSET
+	int "Segment endpoint inset to avoid corner bleed"
+	default 2
+
+config DISPLAY_UI_NUMBER_SHIFT
+	int "Left shift of digit block to make room for postfix (pixels)"
+	default 14
+
+config DISPLAY_UI_LABEL_SCALE
+	int "Font scale multiplier for row labels"
+	default 2
+	range 1 8
+
+endif # DISPLAY_UI
