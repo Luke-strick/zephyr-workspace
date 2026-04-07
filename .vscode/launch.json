@@ -22,7 +22,17 @@
             ],
             "postRestartCommands": [
                 "monitor reset halt"
-            ]
+            ],
+            "rttConfig": {
+                "enabled": true,
+                "address": "auto",
+                "decoders": [
+                    {
+                        "port": 0,
+                        "type": "console"
+                    }
+                ]
+            }
         },
         {
             // Alternative — uses cpptools (no extra extension needed).
