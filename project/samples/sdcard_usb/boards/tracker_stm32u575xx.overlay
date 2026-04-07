@@ -1,0 +1,23 @@
+/*
+ * Route console/log output to USB CDC ACM on the Tracker board.
+ */
+
+&zephyr_udc0 {
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
+};
+
+/ {
+	chosen {
+		zephyr,console = &cdc_acm_uart0;
+		zephyr,shell-uart = &cdc_acm_uart0;
+	};
+};
+
+/* Try 1-bit bus width to diagnose signal integrity issues.
+ * If errors go away, the D1/D2/D3 lines have a problem.
+ * Restore to 4 once hardware is confirmed good. */
+&sdmmc1 {
+	bus-width = <1>;
+};

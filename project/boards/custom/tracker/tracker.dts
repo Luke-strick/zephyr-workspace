@@ -16,6 +16,7 @@
 #include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
 #include <zephyr/dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/lora/sx126x.h>
 
 / {
 	model = "Custom GPS/LoRa Tracker (STM32U575RGT6)";
@@ -196,6 +197,9 @@ zephyr_udc0: &usbotg_fs {
 		dio1-gpios  = <&gpioa 2 GPIO_ACTIVE_HIGH>;
 		tx-enable-gpios = <&gpiob 1 GPIO_ACTIVE_HIGH>;
 		rx-enable-gpios = <&gpiob 0 GPIO_ACTIVE_HIGH>;
+		dio2-tx-enable;
+		dio3-tcxo-voltage = <SX126X_DIO3_TCXO_1V8>;
+		tcxo-power-startup-delay-ms = <5>;
 		power-domains = <&power_3v3>;
 	};
 };

@@ -1,0 +1,26 @@
+diff --git a/drivers/lora/loramac_node/sx12xx_common.c b/drivers/lora/loramac_node/sx12xx_common.c
+index 25d72ff806..12dfe8544a 100644
+--- a/drivers/lora/loramac_node/sx12xx_common.c
++++ b/drivers/lora/loramac_node/sx12xx_common.c
+@@ -89,8 +89,8 @@ static bool modem_release(struct sx12xx_data *data)
+ 	if (!atomic_cas(&data->modem_usage, STATE_BUSY, STATE_CLEANUP)) {
+ 		return false;
+ 	}
+-	/* Put radio back into sleep mode */
+-	Radio.Sleep();
++	/* Leave radio in standby rather than sleep — see modem_release. */
++	Radio.Standby();
+ 	/* Completely release modem */
+ 	data->operation_done = NULL;
+ 	atomic_clear(&data->modem_usage);
+@@ -144,8 +144,8 @@ static void sx12xx_ev_rx_done(uint8_t *payload, uint16_t size, int16_t rssi,
+ 	if (dev_data.rx_params.snr) {
+ 		*dev_data.rx_params.snr = snr;
+ 	}
+-	/* Put radio back into sleep mode */
+-	Radio.Sleep();
++	/* Leave radio in standby rather than sleep — see modem_release. */
++	Radio.Standby();
+ 	/* Completely release modem */
+ 	dev_data.operation_done = NULL;
+ 	atomic_clear(&dev_data.modem_usage);

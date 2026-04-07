@@ -48,7 +48,7 @@ int main(void)
 		display_ui_draw_row(2, n, DISPLAY_UI_POSTFIX_M,   "ALT");
 		display_ui_invert_row(1);
 		display_ui_flush();
-		k_msleep(100);
+		k_msleep(50);
 	}
 
 	while (1) {
