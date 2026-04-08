@@ -1,0 +1,18 @@
+config NAV
+	bool "Nav sailing algorithm library"
+	select FPU
+	help
+	  Sailing navigation algorithms: drift angle, tack/gybe detection
+	  (based on true wind direction), and VMG differential.
+
+if NAV
+
+config NAV_TACK_DEADBAND_DEG
+	int "Tack/gybe detection deadband in degrees"
+	default 15
+	help
+	  Heading must exit this deadband around head-to-wind (for tack) or
+	  dead-downwind (for gybe) before the manoeuvre is registered. Prevents
+	  oscillation when sailing close to the wind transition angle.
+
+endif # NAV

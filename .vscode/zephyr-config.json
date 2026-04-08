@@ -54,6 +54,11 @@
             "name": "lora",
             "path": "project/samples/lora",
             "description": "lora sample"
+        },
+        {
+            "name": "Application",
+            "path": "project/application",
+            "description": "Application"
         }
     ],
     "boards": [

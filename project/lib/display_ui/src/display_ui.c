@@ -316,6 +316,59 @@ static void draw_digit(int col, int row, int d)
 	if (s & SEG_G) { fill_rect(x+T+I,  y+H/2-T/2, x+W-T-I, y+H/2+T/2);   }
 }
 
+/* ── Menu screen helpers ─────────────────────────────────────────────────── */
+
+#define MENU_TITLE_H     CONFIG_DISPLAY_UI_MENU_TITLE_H
+#define MENU_ITEM_MIN_H  CONFIG_DISPLAY_UI_MENU_ITEM_MIN_H
+#define MENU_BORDER_T    CONFIG_DISPLAY_UI_MENU_BORDER_T
+#define MENU_TEXT_SCALE  CONFIG_DISPLAY_UI_MENU_TEXT_SCALE
+
+static int str_len(const char *s)
+{
+	int n = 0;
+
+	while (*s++) {
+		n++;
+	}
+	return n;
+}
+
+/* Draw a hollow rectangle border in virtual portrait coordinates. */
+static void draw_border(int px0, int py0, int px1, int py1, int t)
+{
+	fill_rect(px0,         py0,           px1,           py0 + t - 1);
+	fill_rect(px0,         py1 - t + 1,   px1,           py1);
+	fill_rect(px0,         py0,           px0 + t - 1,   py1);
+	fill_rect(px1 - t + 1, py0,           px1,           py1);
+}
+
+/* Draw a full-width horizontal rule at virtual py. */
+static void draw_hline(int py, int thickness)
+{
+	fill_rect(0, py, P_W - 1, py + thickness - 1);
+}
+
+/*
+ * Draw @p text horizontally, centred within the rectangle
+ * [px_area, py_area, px_area+w, py_area+h) in virtual portrait coords.
+ */
+static void draw_text_centered(int px_area, int py_area, int w, int h,
+				const char *text, int scale)
+{
+	int len  = str_len(text);
+	int cw   = 5 * scale;
+	int gap  = scale;
+	int tw   = len * cw + (len > 1 ? (len - 1) * gap : 0);
+	int th   = 8 * scale;
+	int px   = px_area + (w - tw) / 2;
+	int py   = py_area + (h - th) / 2;
+
+	for (int i = 0; i < len; i++) {
+		draw_char(px, py, get_char_bitmap(text[i]), scale);
+		px += cw + gap;
+	}
+}
+
 /* ── Public API ──────────────────────────────────────────────────────────── */
 
 int display_ui_init(const struct device *dev)
@@ -359,4 +412,85 @@ void display_ui_invert_row(int row)
 
 	fb_invert_region(0, y0, FB_W - 1, y1);
 #endif
+}
+
+void display_ui_draw_menu(const display_ui_menu_t *menu, int selected)
+{
+	display_ui_clear();
+
+	/* Title */
+	draw_text_centered(0, 0, P_W, MENU_TITLE_H, menu->title,
+			   MENU_TEXT_SCALE + 1);
+	draw_hline(MENU_TITLE_H, 2);
+
+	/* Compute how many items fit on screen */
+	int avail_h     = P_H - MENU_TITLE_H - 2;
+	int max_visible = avail_h / MENU_ITEM_MIN_H;
+
+	if (max_visible < 1) {
+		max_visible = 1;
+	}
+	if (max_visible > menu->count) {
+		max_visible = menu->count;
+	}
+
+	int item_h = avail_h / max_visible;
+
+	/* Scroll offset: keep selected centred in the visible window */
+	int offset = selected - max_visible / 2;
+
+	if (offset + max_visible > menu->count) {
+		offset = menu->count - max_visible;
+	}
+	if (offset < 0) {
+		offset = 0;
+	}
+
+	for (int i = 0; i < max_visible; i++) {
+		int idx = offset + i;
+
+		if (idx >= menu->count) {
+			break;
+		}
+
+		int iy_top = MENU_TITLE_H + 2 + i * item_h;
+
+		/* Label centred in the item area */
+		draw_text_centered(0, iy_top, P_W, item_h,
+				   menu->items[idx].label, MENU_TEXT_SCALE);
+
+		/* Selection border */
+		if (idx == selected) {
+			int pad = 3;
+
+			draw_border(pad,           iy_top + pad,
+				    P_W - 1 - pad, iy_top + item_h - 1 - pad,
+				    MENU_BORDER_T);
+		}
+	}
+}
+
+const display_ui_menu_t *display_ui_menu_activate(const display_ui_menu_t *menu,
+						   int selected)
+{
+	if (selected < 0 || selected >= menu->count) {
+		return menu;
+	}
+
+	const display_ui_menu_item_t *item = &menu->items[selected];
+
+	if (item->type == DISPLAY_UI_ITEM_ACTION) {
+		if (item->cb.action) {
+			item->cb.action();
+		}
+		return menu;
+	}
+
+	if (item->cb.submenu) {
+		const display_ui_menu_t *next = item->cb.submenu();
+
+		return next ? next : menu;
+	}
+
+	return menu;
 }

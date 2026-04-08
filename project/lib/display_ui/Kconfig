@@ -3,7 +3,8 @@ config DISPLAY_UI
 	depends on DISPLAY
 	help
 	  Framebuffer-based UI library for 1bpp displays. Provides
-	  large 7-segment digit rows with optional postfixes and labels.
+	  large 7-segment digit rows with optional postfixes and labels,
+	  plus a configurable menu / options screen.
 
 if DISPLAY_UI
 
@@ -49,6 +50,26 @@ config DISPLAY_UI_NUMBER_SHIFT
 
 config DISPLAY_UI_LABEL_SCALE
 	int "Font scale multiplier for row labels"
+	default 2
+	range 1 8
+
+config DISPLAY_UI_MENU_TITLE_H
+	int "Menu title bar height in virtual pixels"
+	default 50
+
+config DISPLAY_UI_MENU_ITEM_MIN_H
+	int "Minimum menu item height in virtual pixels"
+	default 60
+	help
+	  Determines how many items are shown at once. Items are sized to
+	  fill the available space evenly; this is the lower bound.
+
+config DISPLAY_UI_MENU_BORDER_T
+	int "Selection border thickness in virtual pixels"
+	default 2
+
+config DISPLAY_UI_MENU_TEXT_SCALE
+	int "Menu item label text scale factor"
 	default 2
 	range 1 8
 
