@@ -10,6 +10,7 @@
 #include "data_processor.h"
 
 #include <display_ui.h>
+#include <ahrs.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
@@ -106,6 +107,10 @@ static bool in_menu;
 static int  menu_selected;
 static const display_ui_menu_t *current_menu;
 
+/* ── Calibration state ──────────────────────────────────────────────────── */
+
+static bool in_cal;
+
 /* Action / submenu callbacks — forward declarations. */
 static const display_ui_menu_t menu_settings;
 static const display_ui_menu_t menu_row_config;
@@ -140,6 +145,15 @@ static void act_set_wind(void)
 
 static void act_save(void)    { config_save(); }
 static void act_exit(void)    { in_menu = false; }
+
+static void act_mag_cal(void)
+{
+	ahrs_cal_start();
+	data_engine_set_calibrating(true);
+	in_cal  = true;
+	in_menu = false;
+	LOG_INF("Mag calibration started — rotate device");
+}
 
 static void act_lora_on(void)  { config_set_lora_enabled(true); }
 static void act_lora_off(void) { config_set_lora_enabled(false); }
@@ -188,6 +202,7 @@ static void act_tx5(void) { config_set_lora_tx_rate(5); }
 
 static const display_ui_menu_item_t items_settings[] = {
 	DISPLAY_UI_ACTION_ITEM ("SET WIND",  act_set_wind),
+	DISPLAY_UI_ACTION_ITEM ("MAG CAL",   act_mag_cal),
 	DISPLAY_UI_SUBMENU_ITEM("ROW CFG",   go_row_config),
 	DISPLAY_UI_SUBMENU_ITEM("LORA",      go_lora),
 	DISPLAY_UI_ACTION_ITEM ("SAVE",      act_save),
@@ -333,6 +348,56 @@ static void render_data_screen(void)
 	display_ui_flush();
 }
 
+/* ── Calibration screen rendering ────────────────────────────────────────── */
+
+static void render_cal_screen(void)
+{
+	struct ahrs_cal_quality q;
+
+	ahrs_cal_get_quality(&q);
+
+	int gap = (int)(q.gap_pct + 0.5f);
+	int fit = (int)(q.fit_error * 10.0f + 0.5f);  /* µT × 10 */
+	int n   = (int)q.sample_count;
+
+	if (gap > 100) { gap = 100; }
+	if (fit > 999) { fit = 999; }
+	if (n   > 999) { n   = 999; }
+
+	display_ui_clear();
+	display_ui_draw_row(0, gap, DISPLAY_UI_POSTFIX_NONE, "GAP");
+	display_ui_draw_row(1, fit, DISPLAY_UI_POSTFIX_NONE, "FIT");
+	display_ui_invert_row(1);
+	display_ui_draw_row(2, n,   DISPLAY_UI_POSTFIX_NONE, "N");
+	display_ui_flush();
+}
+
+static void cal_finish(bool keep)
+{
+	data_engine_set_calibrating(false);
+	in_cal = false;
+
+	if (keep) {
+		struct ahrs_cal_quality q;
+
+		ahrs_cal_get_quality(&q);
+		ahrs_cal_commit();
+		config_set_ahrs_mag_cal(q.hard_iron,
+					(const float (*)[3])q.soft_iron);
+		config_save();
+		LOG_INF("Mag cal saved: HI=[%.1f,%.1f,%.1f] "
+			"gap=%.0f%% fit=%.2f wob=%.2f",
+			(double)q.hard_iron[0],
+			(double)q.hard_iron[1],
+			(double)q.hard_iron[2],
+			(double)q.gap_pct,
+			(double)q.fit_error,
+			(double)q.wobble);
+	} else {
+		LOG_INF("Mag cal cancelled");
+	}
+}
+
 /* ── Display thread ──────────────────────────────────────────────────────── */
 
 #define DISP_STACK_SIZE  2048
@@ -360,6 +425,35 @@ static void display_thread(void *p1, void *p2, void *p3)
 	while (1) {
 		bool scroll = gpio_pin_get_dt(&btn_scroll) == 0; /* active-low */
 		bool select = gpio_pin_get_dt(&btn_select) == 0;
+
+		/* ── Calibration mode buttons ────────────────────────────── */
+		if (in_cal) {
+			/* Long-press sw0: cancel calibration */
+			if (scroll && !prev_scroll) {
+				scroll_press_start = k_uptime_get();
+				scroll_long_fired  = false;
+			}
+			if (scroll && !scroll_long_fired) {
+				if ((k_uptime_get() - scroll_press_start) >=
+				    LONG_PRESS_MS) {
+					scroll_long_fired = true;
+					cal_finish(false);
+				}
+			}
+
+			/* Short-press sw0: restart calibration */
+			if (!scroll && prev_scroll && !scroll_long_fired) {
+				ahrs_cal_start();
+				LOG_INF("Mag cal restarted");
+			}
+
+			/* sw1: accept calibration, save */
+			if (select && !prev_select) {
+				cal_finish(true);
+			}
+
+			goto buttons_done;
+		}
 
 		/* ── Long-press detection for sw0 ────────────────────────── */
 		if (scroll && !prev_scroll) {
@@ -399,6 +493,8 @@ static void display_thread(void *p1, void *p2, void *p3)
 			}
 		}
 
+buttons_done:
+
 		prev_scroll = scroll;
 		prev_select = select;
 
@@ -407,13 +503,14 @@ static void display_thread(void *p1, void *p2, void *p3)
 
 		if ((now - last_render_ms) >= RENDER_PERIOD_MS) {
 			last_render_ms = now;
-			if (in_menu) {
+			if (in_cal) {
+				render_cal_screen();
+			} else if (in_menu) {
 				display_ui_draw_menu(current_menu, menu_selected);
 				display_ui_flush();
 			} else {
 				render_data_screen();
 			}
-			LOG_INF("Updating screen");
 		}
 
 		k_msleep(POLL_MS);

@@ -1,7 +1,15 @@
 /*
- * Magnetometer raw data streamer — LIS3MDLTR
+ * Magnetometer calibration — LIS3MDLTR
  *
- * Prints "Raw:{mx},{my},{mz}" at 20 Hz over USB CDC ACM.
+ * Collects raw magnetometer samples while the user rotates the device,
+ * computes hard-iron + soft-iron calibration with real-time quality
+ * metrics (gap, variance, wobble, fit error).
+ *
+ * Output (20 Hz via RTT):
+ *   "Raw:<mx>,<my>,<mz>"           — raw reading (µT × 10, integers)
+ *   "CAL:<hx>,<hy>,<hz>"           — hard-iron offset (µT, floats)
+ *   "SI:<s00>,<s11>,<s22>"         — soft-iron diagonal (floats)
+ *   "Q:<gap>,<var>,<wob>,<fit>,<n>" — quality metrics
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,19 +17,9 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/sensor.h>
-#include <zephyr/drivers/uart.h>
-#include <zephyr/usb/usb_device.h>
 #include <zephyr/pm/device_runtime.h>
 #include <math.h>
-
-#define M_PI 3.14159265f
-
-/* Fill with zeros before calibration attempt*/
-static float hard_iron_offset[] = {-49.20f, 49.96f, -27.15f};
-static float soft_iron_matrix[] = {
-	0.979f, 0.044f, -0.0015f, 
-	0.044f , 1.005f, -0.004f, 
-	-0.015, -0.004f, 1.019f};
+#include <ahrs.h>
 
 static const struct device *mag_dev = DEVICE_DT_GET(DT_NODELABEL(lis3mdl));
 
@@ -36,24 +34,19 @@ int main(void)
 
 	pm_device_runtime_get(pwr_3v3);
 
-	const struct device *usb_dev = DEVICE_DT_GET_ONE(zephyr_cdc_acm_uart);
-
-	if (device_is_ready(usb_dev)) {
-		usb_enable(NULL);
-		uint32_t dtr = 0;
-
-		while (!dtr) {
-			uart_line_ctrl_get(usb_dev, UART_LINE_CTRL_DTR, &dtr);
-			k_sleep(K_MSEC(100));
-		}
-	}
-
 	if (!device_is_ready(mag_dev)) {
 		printk("LIS3MDL not ready\n");
 		return -ENODEV;
 	}
 
+	/* Start a fresh calibration session */
+	ahrs_cal_start();
+
+	printk("Rotate device slowly in all directions...\n");
+
 	struct sensor_value v[3];
+	struct ahrs_cal_quality q;
+	uint32_t tick = 0;
 
 	while (1) {
 		if (sensor_sample_fetch_chan(mag_dev, SENSOR_CHAN_MAGN_XYZ) == 0) {
@@ -61,37 +54,43 @@ int main(void)
 			sensor_channel_get(mag_dev, SENSOR_CHAN_MAGN_Y, &v[1]);
 			sensor_channel_get(mag_dev, SENSOR_CHAN_MAGN_Z, &v[2]);
 
-			/* Convert Gauss -> µT */
+			/* Gauss → µT */
 			float rx = sv(&v[0]) * 100.0f;
 			float ry = sv(&v[1]) * 100.0f;
 			float rz = sv(&v[2]) * 100.0f;
 
-			/* Hard-iron offset (µT) */
-			rx -= hard_iron_offset[0];
-			ry -= hard_iron_offset[1];
-			rz -= hard_iron_offset[2];
+			/* Feed into calibration engine */
+			ahrs_cal_add_sample(rx, ry, rz);
 
-			/* Soft-iron matrix */
-			float cx = soft_iron_matrix[0] * rx + soft_iron_matrix[1]  * ry + soft_iron_matrix[2] * rz;
-			float cy = soft_iron_matrix[3] * rx + soft_iron_matrix[4]  * ry + soft_iron_matrix[5] * rz;
-			float cz = soft_iron_matrix[6] * rx + soft_iron_matrix[7]  * ry + soft_iron_matrix[8] * rz;
+			/* Print raw reading */
+			printk("Raw:%d,%d,%d\n",
+			       (int)(rx * 10.0f),
+			       (int)(ry * 10.0f),
+			       (int)(rz * 10.0f));
 
-			int mx = (int)cx*10;
-			int my = (int)cy*10;
-			int mz = (int)cz*10;
+			/* Print quality metrics every 10 samples (2× per second) */
+			tick++;
+			if (tick % 10 == 0) {
+				ahrs_cal_get_quality(&q);
 
-			float heading = atan2f(-cy, cx) * (180.0f / (float)M_PI);
+				printk("CAL:%8.2f,%8.2f,%8.2f\n",
+				       (double)q.hard_iron[0],
+				       (double)q.hard_iron[1],
+				       (double)q.hard_iron[2]);
 
-			if (heading < 0.0f) {
-				heading += 360.0f;
+				printk("SI:%6.3f,%6.3f,%6.3f\n",
+				       (double)q.soft_iron[0][0],
+				       (double)q.soft_iron[1][1],
+				       (double)q.soft_iron[2][2]);
+
+				printk("Q:gap=%.0f%%,var=%.2f,wob=%.2f,"
+				       "fit=%.2f,n=%u\n",
+				       (double)q.gap_pct,
+				       (double)q.variance,
+				       (double)q.wobble,
+				       (double)q.fit_error,
+				       q.sample_count);
 			}
-
-			int hdg = (int)heading;
-
-			/* Used for calibration*/
-			printk("Raw:0,0,0,0,0,0,%d,%d,%d\n", mx, my, mz);
-
-			printk("Heading: %d", hdg);
 		}
 
 		k_msleep(50);

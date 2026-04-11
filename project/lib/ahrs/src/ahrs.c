@@ -228,3 +228,177 @@ void ahrs_get(float *roll_deg, float *pitch_deg, float *heading_deg)
 	if (pitch_deg)   { *pitch_deg   = pitch   * R2D; }
 	if (heading_deg) { *heading_deg = heading; }
 }
+
+/* ── Magnetometer calibration engine ────────────────────────────────────── */
+
+#define CAL_MAX  CONFIG_AHRS_CAL_MAX_SAMPLES
+#define CAL_BINS AHRS_CAL_GAP_BINS
+
+static float    cal_buf[CAL_MAX][3];
+static uint32_t cal_count;
+static uint8_t  cal_gap_bins[CAL_BINS];
+
+void ahrs_cal_start(void)
+{
+	cal_count = 0;
+	memset(cal_gap_bins, 0, sizeof(cal_gap_bins));
+}
+
+void ahrs_cal_add_sample(float mx, float my, float mz)
+{
+	if (cal_count >= CAL_MAX) {
+		return;
+	}
+
+	cal_buf[cal_count][0] = mx;
+	cal_buf[cal_count][1] = my;
+	cal_buf[cal_count][2] = mz;
+	cal_count++;
+
+	/* Update gap coverage bin from raw XY heading */
+	float angle = atan2f(my, mx) * R2D;
+
+	if (angle < 0.0f) {
+		angle += 360.0f;
+	}
+
+	int bin = (int)(angle / AHRS_CAL_GAP_BIN_DEG);
+
+	if (bin >= CAL_BINS) {
+		bin = CAL_BINS - 1;
+	}
+
+	cal_gap_bins[bin] = 1;
+}
+
+int ahrs_cal_collect(void)
+{
+	float mx, my, mz;
+
+	if (read_mag(&mx, &my, &mz)) {
+		return -EIO;
+	}
+
+	ahrs_cal_add_sample(mx, my, mz);
+	return 0;
+}
+
+void ahrs_cal_get_quality(struct ahrs_cal_quality *q)
+{
+	if (!q) {
+		return;
+	}
+
+	memset(q, 0, sizeof(*q));
+	q->sample_count = cal_count;
+
+	if (cal_count < 2) {
+		q->gap_pct = 100.0f;
+		return;
+	}
+
+	/* ── Hard-iron: min/max centre ──────────────────────────────────── */
+	float mn[3] = { cal_buf[0][0], cal_buf[0][1], cal_buf[0][2] };
+	float mx[3] = { cal_buf[0][0], cal_buf[0][1], cal_buf[0][2] };
+
+	for (uint32_t i = 1; i < cal_count; i++) {
+		for (int a = 0; a < 3; a++) {
+			if (cal_buf[i][a] < mn[a]) {
+				mn[a] = cal_buf[i][a];
+			}
+			if (cal_buf[i][a] > mx[a]) {
+				mx[a] = cal_buf[i][a];
+			}
+		}
+	}
+
+	for (int a = 0; a < 3; a++) {
+		q->hard_iron[a] = (mn[a] + mx[a]) * 0.5f;
+	}
+
+	/* ── Soft-iron: per-axis scale to average radius ────────────────── */
+	float range[3];
+	float avg_range = 0.0f;
+
+	for (int a = 0; a < 3; a++) {
+		range[a] = mx[a] - mn[a];
+		avg_range += range[a];
+	}
+
+	avg_range /= 3.0f;
+
+	/* Start with identity */
+	memset(q->soft_iron, 0, sizeof(q->soft_iron));
+
+	for (int a = 0; a < 3; a++) {
+		q->soft_iron[a][a] = (range[a] > 1e-6f)
+				   ? (avg_range / range[a])
+				   : 1.0f;
+	}
+
+	/* ── Apply correction and gather statistics ─────────────────────── */
+	float sum_r  = 0.0f;
+	float sum_r2 = 0.0f;
+	float sum_z  = 0.0f;
+	float sum_z2 = 0.0f;
+
+	for (uint32_t i = 0; i < cal_count; i++) {
+		/* Hard-iron subtract */
+		float cx = cal_buf[i][0] - q->hard_iron[0];
+		float cy = cal_buf[i][1] - q->hard_iron[1];
+		float cz = cal_buf[i][2] - q->hard_iron[2];
+
+		/* Soft-iron scale */
+		cx *= q->soft_iron[0][0];
+		cy *= q->soft_iron[1][1];
+		cz *= q->soft_iron[2][2];
+
+		float r = sqrtf(cx * cx + cy * cy + cz * cz);
+
+		sum_r  += r;
+		sum_r2 += r * r;
+		sum_z  += cz;
+		sum_z2 += cz * cz;
+	}
+
+	float n      = (float)cal_count;
+	float mean_r = sum_r / n;
+	float mean_z = sum_z / n;
+
+	/* Variance of radius (µT²) */
+	q->variance = (sum_r2 / n) - (mean_r * mean_r);
+	if (q->variance < 0.0f) {
+		q->variance = 0.0f;
+	}
+
+	/* Fit error: RMS radius residual (µT) */
+	q->fit_error = sqrtf(q->variance);
+
+	/* Wobble: std-dev of corrected Z (µT) */
+	float var_z = (sum_z2 / n) - (mean_z * mean_z);
+
+	if (var_z < 0.0f) {
+		var_z = 0.0f;
+	}
+
+	q->wobble = sqrtf(var_z);
+
+	/* ── Gap: percentage of uncovered bins (100 % → 0 %) ──────────── */
+	uint32_t empty = 0;
+
+	for (int i = 0; i < CAL_BINS; i++) {
+		if (cal_gap_bins[i] == 0) {
+			empty++;
+		}
+	}
+
+	q->gap_pct = (float)empty * 100.0f / (float)CAL_BINS;
+}
+
+void ahrs_cal_commit(void)
+{
+	struct ahrs_cal_quality q;
+
+	ahrs_cal_get_quality(&q);
+	ahrs_set_mag_calibration(q.hard_iron, q.soft_iron);
+}

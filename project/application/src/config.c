@@ -14,10 +14,11 @@ LOG_MODULE_REGISTER(config, LOG_LEVEL_INF);
 
 /* ── Defaults ────────────────────────────────────────────────────────────── */
 
+
 static const struct app_config cfg_defaults = {
 	.sample_rate_hz = DATA_RATE_10HZ,
 	.data_sources   = DATA_SRC_GPS | DATA_SRC_AHRS,
-	.row_src        = { ROW_SRC_SPEED_KT, ROW_SRC_HEADING_DEG, ROW_SRC_DRIFT_DEG },
+	.row_src        = { ROW_SRC_ROLL_DEG, ROW_SRC_HEADING_DEG, ROW_SRC_PITCH_DEG },
 	.lora = {
 		.enabled    = false,
 		.boat_id    = 0,
@@ -123,8 +124,9 @@ int config_init(void)
 		LOG_ERR("settings_subsys_init failed: %d", ret);
 		return ret;
 	}
-
+	
 	// ret = settings_load();
+	ret = 1;
 	if (ret) {
 		LOG_WRN("settings_load failed: %d — using defaults", ret);
 	}

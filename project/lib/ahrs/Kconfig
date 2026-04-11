@@ -32,4 +32,14 @@ config AHRS_GYRO_DEADBAND_MRAD
 	  Gyro readings below this magnitude (after bias removal) are
 	  clamped to zero to prevent yaw drift accumulation.
 
+config AHRS_CAL_MAX_SAMPLES
+	int "Maximum samples for magnetometer calibration buffer"
+	default 256
+	range 32 1024
+	help
+	  Number of raw magnetometer readings stored during a calibration
+	  session.  Each sample uses 12 bytes (3 × float).  256 samples
+	  = 3 KB of RAM.  More samples improve quality estimation at the
+	  cost of memory.
+
 endif # AHRS

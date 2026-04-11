@@ -76,4 +76,18 @@ void data_engine_get_averages(struct data_averages *out);
  */
 void data_engine_get_latest(struct data_sample *out);
 
+/**
+ * Enable or disable magnetometer calibration collection.
+ *
+ * While enabled, the engine thread reads the raw magnetometer at
+ * 10 Hz and feeds samples into the AHRS calibration buffer via
+ * ahrs_cal_collect().  The normal AHRS filter continues running.
+ *
+ * Thread-safe; may be called from any thread.
+ */
+void data_engine_set_calibrating(bool cal);
+
+/** Return true if calibration collection is active. */
+bool data_engine_is_calibrating(void);
+
 #endif /* DATA_ENGINE_H */

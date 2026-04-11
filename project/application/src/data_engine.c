@@ -40,6 +40,10 @@ static struct data_sample   latest_sample;
 
 K_SEM_DEFINE(data_engine_sem, 0, 1);
 
+/* ── Calibration flag (atomic for cross-thread access) ─────────────────── */
+
+static volatile bool cal_active;
+
 /* ── GNSS callback ───────────────────────────────────────────────────────── */
 
 static void gnss_data_cb(const struct device *dev, const struct gnss_data *data)
@@ -145,6 +149,12 @@ static void engine_thread(void *p1, void *p2, void *p3)
 		if ((cfg->data_sources & DATA_SRC_AHRS) &&
 		    (now - last_ahrs_ms) >= AHRS_INTERVAL_MS) {
 			ahrs_update();
+
+			/* Feed raw mag into calibration buffer when active. */
+			if (cal_active) {
+				ahrs_cal_collect();
+			}
+
 			last_ahrs_ms = now;
 		}
 
@@ -238,4 +248,14 @@ void data_engine_get_latest(struct data_sample *out)
 	k_mutex_lock(&avg_mutex, K_FOREVER);
 	*out = latest_sample;
 	k_mutex_unlock(&avg_mutex);
+}
+
+void data_engine_set_calibrating(bool cal)
+{
+	cal_active = cal;
+}
+
+bool data_engine_is_calibrating(void)
+{
+	return cal_active;
 }

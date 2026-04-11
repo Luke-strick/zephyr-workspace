@@ -84,4 +84,88 @@ int ahrs_update(void);
  */
 void ahrs_get(float *roll_deg, float *pitch_deg, float *heading_deg);
 
+/* ── Real-time magnetometer calibration ─────────────────────────────────── */
+
+/** Maximum samples the calibration buffer holds (configurable via Kconfig). */
+#ifndef CONFIG_AHRS_CAL_MAX_SAMPLES
+#define CONFIG_AHRS_CAL_MAX_SAMPLES 256
+#endif
+
+/** Angular resolution for gap detection (degrees, must divide 360). */
+#define AHRS_CAL_GAP_BIN_DEG 5
+#define AHRS_CAL_GAP_BINS    (360 / AHRS_CAL_GAP_BIN_DEG)
+
+/**
+ * Real-time calibration quality metrics.
+ *
+ * After each sample the caller can query these to decide whether to
+ * keep the calibration or restart.
+ *
+ * Typical acceptance thresholds:
+ *   gap       < 10 %      (most of the sphere covered)
+ *   wobble    < 15 µT     (device kept reasonably level)
+ *   fit_error <  3 µT     (corrected points form a clean sphere)
+ */
+struct ahrs_cal_quality {
+	float    hard_iron[3];     /**< Hard-iron offset estimate (µT).       */
+	float    soft_iron[3][3];  /**< Soft-iron correction matrix.          */
+	float    gap_pct;          /**< Uncovered area (%).  Starts at 100,
+	                                decreases toward 0 as the sphere
+	                                fills in.                              */
+	float    variance;         /**< Radius variance (µT²).                */
+	float    wobble;           /**< Z-axis std-dev after correction (µT). */
+	float    fit_error;        /**< RMS radius residual (µT).             */
+	uint32_t sample_count;     /**< Samples collected so far.             */
+};
+
+/**
+ * Start (or restart) a magnetometer calibration session.
+ *
+ * Clears the sample buffer and all accumulators.  The active AHRS
+ * calibration is *not* touched until ahrs_cal_commit() is called.
+ */
+void ahrs_cal_start(void);
+
+/**
+ * Feed one raw magnetometer reading into the calibration engine.
+ *
+ * Call this each time the magnetometer is read while the user rotates
+ * the device.  Samples beyond CONFIG_AHRS_CAL_MAX_SAMPLES are ignored.
+ *
+ * @param mx  Raw X-axis reading (µT).
+ * @param my  Raw Y-axis reading (µT).
+ * @param mz  Raw Z-axis reading (µT).
+ */
+void ahrs_cal_add_sample(float mx, float my, float mz);
+
+/**
+ * Read the magnetometer and feed the sample into the calibration buffer.
+ *
+ * Convenience wrapper: reads raw mag via the device registered in
+ * ahrs_init(), converts to µT, and calls ahrs_cal_add_sample().
+ * ahrs_init() must have been called first.
+ *
+ * @return 0 on success, -EIO on sensor failure.
+ */
+int ahrs_cal_collect(void);
+
+/**
+ * Compute and return the current calibration quality.
+ *
+ * Safe to call repeatedly — no side effects.  Results are only
+ * meaningful once a reasonable number of samples have been collected
+ * (≥ 20 or so).
+ *
+ * @param[out] q  Filled with the latest quality metrics.
+ */
+void ahrs_cal_get_quality(struct ahrs_cal_quality *q);
+
+/**
+ * Apply the current calibration estimate to the AHRS filter.
+ *
+ * Calls ahrs_set_mag_calibration() with the computed hard-iron and
+ * soft-iron values.  Only call when the quality metrics are acceptable.
+ */
+void ahrs_cal_commit(void);
+
 #endif /* AHRS_H */

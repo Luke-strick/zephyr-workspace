@@ -59,6 +59,16 @@
             "name": "Application",
             "path": "project/application",
             "description": "Application"
+        },
+        {
+            "name": "Test Sleep",
+            "path": "project/samples/sleep_test",
+            "description": "Testing Sleep mode current"
+        },          
+        {
+            "name": "Vbat",
+            "path": "project/samples/vbat",
+            "description": "ADC pin testing"
         }
     ],
     "boards": [

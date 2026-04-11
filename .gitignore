@@ -5,3 +5,10 @@ external
 .claude
 .vscode/.active-config.json
 .vscode/zephyr-ide.json
+.cursorrules
+.mcp.json
+.opencode.json
+.windsurfrules
+AGENTS.md
+CLAUDE.md
+GEMINI.md
