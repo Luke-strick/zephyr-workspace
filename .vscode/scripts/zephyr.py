@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Zephyr workspace manager — app/board selection, build, and flash."""
+"""Zephyr workspace manager — app/board selection, build, flash, and clean."""
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -11,7 +12,7 @@ CONFIG_FILE = os.path.join(WORKSPACE, '.vscode', 'zephyr-config.json')
 ACTIVE_FILE = os.path.join(WORKSPACE, '.vscode', '.active-config.json')
 ACTIVE_OCD_CFG = os.path.join(WORKSPACE, '.vscode', 'openocd', 'active.cfg')
 ACTIVE_SVD     = os.path.join(WORKSPACE, '.vscode', 'svd', 'active.svd')
-DEBUG_BUILD_DIR = os.path.join(WORKSPACE, 'build', 'debug')
+ACTIVE_ELF     = os.path.join(WORKSPACE, '.vscode', 'active.elf')
 
 
 def load_config():
@@ -24,76 +25,32 @@ def load_config():
 
 def load_active():
     if not os.path.exists(ACTIVE_FILE):
-        print("ERROR: No active configuration. Run 'Zephyr: Select App & Board' first.")
+        print("ERROR: No active configuration. Run 'Select App' and 'Select Board' first.")
         sys.exit(1)
     with open(ACTIVE_FILE) as f:
         return json.load(f)
 
 
-def select_from_list(items, prompt, name_key='name', detail_key=None):
-    """Show a numbered menu and return the chosen item."""
-    print(f"\n{prompt}")
-    print("-" * 50)
-    for i, item in enumerate(items, 1):
-        detail = f"  [{item[detail_key]}]" if detail_key and detail_key in item else ""
-        desc = f"  — {item['description']}" if 'description' in item else ""
-        print(f"  {i:2d}.  {item[name_key]}{detail}{desc}")
-    print()
-    while True:
-        try:
-            line = input(f"Enter number (1–{len(items)}): ").strip()
-            idx = int(line) - 1
-            if 0 <= idx < len(items):
-                return items[idx]
-        except (ValueError,):
-            pass
-        except (KeyboardInterrupt, EOFError):
-            print("\nCancelled.")
-            sys.exit(0)
-        print(f"  Please enter a number between 1 and {len(items)}.")
+def save_active(active):
+    with open(ACTIVE_FILE, 'w') as f:
+        json.dump(active, f, indent=2)
 
 
-def cmd_select(_args):
-    """Interactively select app and board, update active config."""
-    config = load_config()
-
-    apps = config.get('applications', [])
-    boards = config.get('boards', [])
-
-    if not apps:
-        print("No applications in .vscode/zephyr-config.json — add one first.")
-        sys.exit(1)
-    if not boards:
-        print("No boards in .vscode/zephyr-config.json — add one first.")
-        sys.exit(1)
-
-    print("\n╔══════════════════════════════════════╗")
-    print("║    Zephyr Configuration Selector     ║")
-    print("╚══════════════════════════════════════╝")
-
-    app = select_from_list(apps, "Select Application:", 'name')
-    board = select_from_list(boards, "Select Board:", 'name', 'id')
-
+def apply_board(active, board):
+    """Write board fields into active config and update side-effect files."""
     svd_rel = board.get('svd_file', '')
     svd_abs = os.path.join(WORKSPACE, svd_rel) if svd_rel else ''
 
-    active = {
-        'app_name': app['name'],
-        'app_path': app['path'],
+    active.update({
         'board_id': board['id'],
         'board_name': board['name'],
         'openocd_cfg': board.get('openocd_cfg', ''),
         'gdb_target': board.get('gdb_target', ''),
         'svd_file': svd_rel,
         'board_root': board.get('board_root', ''),
-        'build_dir': 'build/debug',
-    }
+    })
 
-    # Write active config
-    with open(ACTIVE_FILE, 'w') as f:
-        json.dump(active, f, indent=2)
-
-    # Write active.cfg that sources the board's OpenOCD config
+    # Write active.cfg
     board_cfg_path = os.path.join(WORKSPACE, active['openocd_cfg'])
     os.makedirs(os.path.dirname(ACTIVE_OCD_CFG), exist_ok=True)
     with open(ACTIVE_OCD_CFG, 'w') as f:
@@ -101,67 +58,136 @@ def cmd_select(_args):
         f.write(f"# Board: {board['name']} ({board['id']})\n")
         f.write(f"source \"{board_cfg_path}\"\n")
 
-    # Copy SVD so launch.json can always reference a fixed path
-    import shutil
+    # Copy SVD
     os.makedirs(os.path.dirname(ACTIVE_SVD), exist_ok=True)
     if svd_abs and os.path.exists(svd_abs):
         shutil.copy2(svd_abs, ACTIVE_SVD)
-        svd_status = os.path.basename(svd_abs)
-    elif svd_abs:
-        # Create a placeholder so VS Code doesn't error on a missing file
-        open(ACTIVE_SVD, 'w').close()
-        svd_status = f"MISSING — place {os.path.basename(svd_abs)} in .vscode/svd/"
     else:
         open(ACTIVE_SVD, 'w').close()
-        svd_status = "none configured"
 
-    print(f"\n{'='*50}")
-    print(f"  Application : {app['name']}")
-    print(f"  Path        : {app['path']}")
-    print(f"  Board       : {board['name']}")
-    print(f"  Board ID    : {board['id']}")
-    print(f"  Build dir   : build/debug")
-    print(f"  SVD         : {svd_status}")
-    print(f"{'='*50}")
-    print("\nDone. Use 'Zephyr: Build' to compile.")
+
+def build_dir_for(app_path):
+    """Return the build directory path for a given app path (relative to workspace)."""
+    return os.path.join(WORKSPACE, app_path, 'build')
+
+
+def update_active_elf(app_path):
+    """Point .vscode/active.elf at the current app's zephyr.elf."""
+    elf = os.path.join(build_dir_for(app_path), 'zephyr', 'zephyr.elf')
+    # Remove existing symlink or file
+    if os.path.lexists(ACTIVE_ELF):
+        os.remove(ACTIVE_ELF)
+    os.symlink(elf, ACTIVE_ELF)
+
+
+def cmd_set_board(args):
+    """Set the active board by ID."""
+    config = load_config()
+    board_id = args.board_id
+
+    board = next((b for b in config.get('boards', []) if b['id'] == board_id), None)
+    if board is None:
+        print(f"ERROR: Unknown board '{board_id}'")
+        print("Known boards:", ', '.join(b['id'] for b in config.get('boards', [])))
+        sys.exit(1)
+
+    # Load or create active config
+    active = {}
+    if os.path.exists(ACTIVE_FILE):
+        with open(ACTIVE_FILE) as f:
+            active = json.load(f)
+
+    apply_board(active, board)
+    save_active(active)
+
+    print(f"Board set: {board['name']} ({board_id})")
+
+
+def cmd_set_app(args):
+    """Set the active application by path."""
+    app_path = args.app_path
+
+    # Load or create active config
+    active = {}
+    if os.path.exists(ACTIVE_FILE):
+        with open(ACTIVE_FILE) as f:
+            active = json.load(f)
+
+    active['app_path'] = app_path
+
+    save_active(active)
+    update_active_elf(app_path)
+    print(f"App set: {app_path}")
 
 
 def cmd_build(args):
     """Build the active Zephyr application with west."""
     active = load_active()
-    app_abs = os.path.join(WORKSPACE, active['app_path'])
-    board_id = active['board_id']
+    app_path = active.get('app_path')
+    board_id = active.get('board_id')
 
-    print(f"\n  App   : {active['app_name']}")
-    print(f"  Board : {active['board_name']} ({board_id})")
-    print(f"  Dir   : {DEBUG_BUILD_DIR}")
+    if not app_path:
+        print("ERROR: No app selected. Run 'Zephyr: Select App' first.")
+        sys.exit(1)
+    if not board_id:
+        print("ERROR: No board selected. Run 'Zephyr: Select Board' first.")
+        sys.exit(1)
+
+    app_abs = os.path.join(WORKSPACE, app_path)
+    build_dir = build_dir_for(app_path)
+
+    print(f"  App   : {app_path}")
+    print(f"  Board : {board_id}")
+    print(f"  Build : {os.path.relpath(build_dir, WORKSPACE)}")
     print()
 
     cmd = [
         'west', 'build',
         '-b', board_id,
         app_abs,
-        '--build-dir', DEBUG_BUILD_DIR,
+        '--build-dir', build_dir,
     ]
     if args.pristine:
         cmd.append('--pristine')
 
-    # Pass BOARD_ROOT for custom boards outside the Zephyr tree
     board_root = active.get('board_root', '')
     if board_root:
         board_root_abs = os.path.join(WORKSPACE, board_root)
         cmd.extend(['--', f'-DBOARD_ROOT={board_root_abs}'])
 
     result = subprocess.run(cmd, cwd=WORKSPACE)
+    if result.returncode == 0:
+        update_active_elf(app_path)
     sys.exit(result.returncode)
+
+
+def cmd_clean(args):
+    """Delete the build directory for the active app."""
+    active = load_active()
+    app_path = active.get('app_path')
+
+    if not app_path:
+        print("ERROR: No app selected. Run 'Zephyr: Select App' first.")
+        sys.exit(1)
+
+    build_dir = build_dir_for(app_path)
+
+    if os.path.exists(build_dir):
+        shutil.rmtree(build_dir)
+        print(f"Cleaned: {os.path.relpath(build_dir, WORKSPACE)}")
+    else:
+        print(f"Nothing to clean: {os.path.relpath(build_dir, WORKSPACE)}")
 
 
 def cmd_flash(_args):
     """Flash the active build with west."""
     active = load_active()
-    print(f"\n  Flashing {active['app_name']} → {active['board_name']}")
+    app_path = active.get('app_path', '')
+    build_dir = build_dir_for(app_path)
+
+    print(f"  Flashing {app_path} → {active.get('board_id', '?')}")
     result = subprocess.run(
-        ['west', 'flash', '--build-dir', DEBUG_BUILD_DIR],
+        ['west', 'flash', '--build-dir', build_dir],
         cwd=WORKSPACE,
     )
     sys.exit(result.returncode)
@@ -170,15 +196,14 @@ def cmd_flash(_args):
 def cmd_info(_args):
     """Print the active configuration."""
     if not os.path.exists(ACTIVE_FILE):
-        print("No active configuration — run 'Zephyr: Select App & Board' first.")
+        print("No active configuration — run 'Select App' and 'Select Board' first.")
         return
     active = load_active()
+    app_path = active.get('app_path', '—')
     print("\nActive Zephyr configuration:")
-    print(f"  Application : {active.get('app_name', '—')}")
-    print(f"  App path    : {active.get('app_path', '—')}")
-    print(f"  Board       : {active.get('board_name', '—')}")
-    print(f"  Board ID    : {active.get('board_id', '—')}")
-    print(f"  Build dir   : {active.get('build_dir', '—')}")
+    print(f"  App path    : {app_path}")
+    print(f"  Board       : {active.get('board_id', '—')}")
+    print(f"  Build dir   : {os.path.relpath(build_dir_for(app_path), WORKSPACE) if app_path != '—' else '—'}")
     print(f"  OpenOCD cfg : {active.get('openocd_cfg', '—')}")
     print(f"  SVD file    : {active.get('svd_file', '—')}")
 
@@ -187,22 +212,29 @@ def main():
     parser = argparse.ArgumentParser(description='Zephyr workspace manager')
     sub = parser.add_subparsers(dest='command', metavar='command')
 
-    sub.add_parser('select', help='Interactively select app and board')
+    sb = sub.add_parser('set-board', help='Set the active board')
+    sb.add_argument('board_id', help='Board ID (e.g. tracker/stm32u575xx)')
+
+    sa = sub.add_parser('set-app', help='Set the active application')
+    sa.add_argument('app_path', help='App path relative to workspace (e.g. project/samples/gps)')
 
     build_p = sub.add_parser('build', help='Build the active app')
     build_p.add_argument('--pristine', '-p', action='store_true',
                          help='Clean build (west build --pristine)')
 
+    sub.add_parser('clean', help='Delete the build directory for the active app')
     sub.add_parser('flash', help='Flash the active build')
     sub.add_parser('info', help='Show active configuration')
 
     args = parser.parse_args()
 
     commands = {
-        'select': cmd_select,
-        'build': cmd_build,
-        'flash': cmd_flash,
-        'info': cmd_info,
+        'set-board': cmd_set_board,
+        'set-app':   cmd_set_app,
+        'build':     cmd_build,
+        'clean':     cmd_clean,
+        'flash':     cmd_flash,
+        'info':      cmd_info,
     }
 
     fn = commands.get(args.command)

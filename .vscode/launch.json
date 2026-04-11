@@ -3,19 +3,19 @@
     "configurations": [
         {
             // Primary debug config — requires marus25.cortex-debug extension.
-            // Workflow: "Zephyr: Select App & Board" → F5 (builds automatically).
+            // Workflow: "Select App" + "Select Board" → F5 (builds automatically).
             // Peripheral registers appear in the "Cortex Peripherals" panel (SVD).
             "type": "cortex-debug",
             "request": "launch",
             "name": "Debug (OpenOCD)",
             "servertype": "openocd",
-            "executable": "${workspaceFolder}/build/debug/zephyr/zephyr.elf",
+            "executable": "${workspaceFolder}/.vscode/active.elf",
             "configFiles": [
                 "${workspaceFolder}/.vscode/openocd/active.cfg"
             ],
             "svdFile": "${workspaceFolder}/.vscode/svd/active.svd",
             "gdbPath": "${config:zephyr.sdkPath}/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
-            "preLaunchTask": "Zephyr: Build",
+            "preLaunchTask": "Zephyr: Quick Build",
             "runToEntryPoint": "main",
             "overrideResetCommands": [
                 "monitor reset halt"
@@ -41,7 +41,7 @@
             "type": "cppdbg",
             "request": "launch",
             "name": "Debug (cppdbg + OpenOCD attach)",
-            "program": "${workspaceFolder}/build/debug/zephyr/zephyr.elf",
+            "program": "${workspaceFolder}/.vscode/active.elf",
             "MIMode": "gdb",
             "miDebuggerPath": "${config:zephyr.sdkPath}/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
             "miDebuggerServerAddress": "localhost:3333",
