@@ -160,6 +160,7 @@
                 "project/samples/button",
                 "project/samples/usb_shell",
                 "project/samples/sdcard_usb",
+                "project/samples/sdcard_passthrough",
                 "project/samples/mag_calibration",
                 "project/samples/acc_calibration",
                 "project/samples/sleep_test",

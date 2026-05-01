@@ -18,7 +18,12 @@
         {
             "name": "sdcard_usb",
             "path": "project/samples/sdcard_usb",
-            "description": "SD card USB mass-storage passthrough"
+            "description": "SD card counter — writes incrementing count to count.txt every second"
+        },
+        {
+            "name": "sdcard_passthrough",
+            "path": "project/samples/sdcard_passthrough",
+            "description": "SD card USB mass-storage passthrough — appears as removable drive over USB-C"
         },
         {
             "name": "lora",
