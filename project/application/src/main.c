@@ -72,8 +72,6 @@ int main(void)
 				   cfg->gyro_bias_z_mdps);
 		ahrs_set_mag_calibration(cfg->hard_iron,
 					 (const float (*)[3])cfg->soft_iron);
-		ahrs_set_imu_to_mag_rotation(
-			(const float (*)[3])cfg->imu_to_mag_rot);
 	}
 
 	/* 6. Initialise nav library. */

@@ -57,7 +57,7 @@ struct app_config {
 	data_src_flags_t data_sources;
 
 	/* Display */
-	row_src_t        row_src[3];
+	row_src_t        row_src;
 
 	/* LoRa */
 	struct lora_cfg  lora;
@@ -71,7 +71,6 @@ struct app_config {
 	float gyro_bias_z_mdps;
 	float hard_iron[3];
 	float soft_iron[3][3];
-	float imu_to_mag_rot[3][3];
 };
 
 /* ── Public API ──────────────────────────────────────────────────────────── */
@@ -93,7 +92,7 @@ int config_save(void);
 /* Setters — modify live config; call config_save() to persist. */
 void config_set_sample_rate(data_rate_t hz);
 void config_set_data_sources(data_src_flags_t flags);
-void config_set_row_src(int row, row_src_t src);
+void config_set_row_src(row_src_t src);
 void config_set_lora_enabled(bool enabled);
 void config_set_lora_boat_id(uint8_t id);
 void config_set_lora_n_boats(uint8_t n);
@@ -102,6 +101,5 @@ void config_set_lora_frequency(uint32_t freq_hz);
 void config_set_true_wind_dir(float deg);
 void config_set_ahrs_gyro_bias(float x, float y, float z);
 void config_set_ahrs_mag_cal(const float hard[3], const float soft[3][3]);
-void config_set_ahrs_rotation(const float rot[3][3]);
 
 #endif /* CONFIG_H */

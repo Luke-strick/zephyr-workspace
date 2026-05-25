@@ -90,4 +90,7 @@ void data_engine_set_calibrating(bool cal);
 /** Return true if calibration collection is active. */
 bool data_engine_is_calibrating(void);
 
+void data_engine_set_imu_calibrating(bool cal);
+bool data_engine_is_imu_calibrating(void);
+
 #endif /* DATA_ENGINE_H */

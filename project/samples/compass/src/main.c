@@ -29,13 +29,6 @@ static const float soft_iron[3][3] = {
 	{ -0.015f, -0.004f, +1.019f },
 };
 
-/* IMU → mag frame rotation (match PCB mounting, see ahrs.h for presets) */
-static const float imu_to_mag[3][3] = {
-	{ -1.0f,  0.0f,  0.0f },
-	{  0.0f, -1.0f,  0.0f },
-	{  0.0f,  0.0f,  1.0f },
-};
-
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 int main(void)
@@ -52,7 +45,6 @@ int main(void)
 
 	ahrs_set_gyro_bias(GYRO_BIAS_X_MDPS, GYRO_BIAS_Y_MDPS, GYRO_BIAS_Z_MDPS);
 	ahrs_set_mag_calibration(hard_iron, soft_iron);
-	ahrs_set_imu_to_mag_rotation(imu_to_mag);
 
 	printk("Tilt-compensated compass starting...\n");
 

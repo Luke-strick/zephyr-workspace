@@ -28,7 +28,7 @@ static const struct gpio_dt_spec btn_scroll =
 static const struct gpio_dt_spec btn_select =
 	GPIO_DT_SPEC_GET(DT_ALIAS(sw1), gpios);
 
-#define LONG_PRESS_MS   500
+#define LONG_PRESS_MS   800
 #define POLL_MS          10   /* button poll interval ms */
 #define RENDER_PERIOD_MS 100  /* display update period = 5 Hz */
 
@@ -101,36 +101,32 @@ static const struct row_display_def row_defs[ROW_SRC_COUNT] = {
 	[ROW_SRC_DRIFT_DEG]   = { DISPLAY_UI_POSTFIX_DEG, "DFT", fn_drift,    true  },
 };
 
-/* ── Menu state ──────────────────────────────────────────────────────────── */
+/* ── Display state ───────────────────────────────────────────────────────── */
 
 static bool in_menu;
 static int  menu_selected;
 static const display_ui_menu_t *current_menu;
 
-/* ── Calibration state ──────────────────────────────────────────────────── */
-
 static bool in_cal;
+static int  cal_view;    /* 0=GAP, 1=FIT, 2=N — cycled by scroll in cal mode */
+static int  current_stat; /* index into row_defs[], cycled by scroll on data screen */
+static bool in_imu_cal;
 
-/* Action / submenu callbacks — forward declarations. */
+/* ── Menu callbacks ──────────────────────────────────────────────────────── */
+
 static const display_ui_menu_t menu_settings;
-static const display_ui_menu_t menu_row_config;
-static const display_ui_menu_t menu_row0_src;
-static const display_ui_menu_t menu_row1_src;
-static const display_ui_menu_t menu_row2_src;
+static const display_ui_menu_t menu_stat_select;
 static const display_ui_menu_t menu_lora;
 static const display_ui_menu_t menu_boat_id;
 static const display_ui_menu_t menu_n_boats;
 static const display_ui_menu_t menu_tx_rate;
 
-static const display_ui_menu_t *go_settings(void)   { return &menu_settings; }
-static const display_ui_menu_t *go_row_config(void) { return &menu_row_config; }
-static const display_ui_menu_t *go_row0(void)       { return &menu_row0_src; }
-static const display_ui_menu_t *go_row1(void)       { return &menu_row1_src; }
-static const display_ui_menu_t *go_row2(void)       { return &menu_row2_src; }
-static const display_ui_menu_t *go_lora(void)       { return &menu_lora; }
-static const display_ui_menu_t *go_boat_id(void)    { return &menu_boat_id; }
-static const display_ui_menu_t *go_n_boats(void)    { return &menu_n_boats; }
-static const display_ui_menu_t *go_tx_rate(void)    { return &menu_tx_rate; }
+static const display_ui_menu_t *go_settings(void)    { return &menu_settings; }
+static const display_ui_menu_t *go_stat_select(void) { return &menu_stat_select; }
+static const display_ui_menu_t *go_lora(void)        { return &menu_lora; }
+static const display_ui_menu_t *go_boat_id(void)     { return &menu_boat_id; }
+static const display_ui_menu_t *go_n_boats(void)     { return &menu_n_boats; }
+static const display_ui_menu_t *go_tx_rate(void)     { return &menu_tx_rate; }
 
 /* Actions */
 static void act_set_wind(void)
@@ -150,38 +146,59 @@ static void act_mag_cal(void)
 {
 	ahrs_cal_start();
 	data_engine_set_calibrating(true);
-	in_cal  = true;
-	in_menu = false;
+	cal_view = 0;
+	in_cal   = true;
+	in_menu  = false;
 	LOG_INF("Mag calibration started — rotate device");
 }
 
+#define IMU_CAL_N_TARGET  50   /* 5 s at 10 Hz */
+
+static void act_imu_cal(void)
+{
+	ahrs_imu_cal_start();
+	data_engine_set_imu_calibrating(true);
+	in_imu_cal = true;
+	in_menu    = false;
+	LOG_INF("IMU calibration started — keep device flat and still");
+}
+
+static void imu_cal_finish(bool keep)
+{
+	data_engine_set_imu_calibrating(false);
+	in_imu_cal = false;
+
+	if (keep && ahrs_imu_cal_get_count() >= 10) {
+		float gx, gy, gz;
+
+		ahrs_imu_cal_commit(&gx, &gy, &gz);
+		config_set_ahrs_gyro_bias(gx, gy, gz);
+		config_save();
+		LOG_INF("IMU cal saved: gyro=[%.1f,%.1f,%.1f]mdps",
+			(double)gx, (double)gy, (double)gz);
+	} else {
+		LOG_INF("IMU cal cancelled");
+	}
+}
+
+/* Stat selection — shows chosen stat, persists, and exits menu */
+static void select_stat(row_src_t src)
+{
+	current_stat = src;
+	config_set_row_src(src);
+	config_save();
+	in_menu = false;
+}
+
+static void act_stat_hdg(void) { select_stat(ROW_SRC_HEADING_DEG); }
+static void act_stat_spd(void) { select_stat(ROW_SRC_SPEED_KT);    }
+static void act_stat_alt(void) { select_stat(ROW_SRC_ALTITUDE_M);  }
+static void act_stat_rol(void) { select_stat(ROW_SRC_ROLL_DEG);    }
+static void act_stat_pch(void) { select_stat(ROW_SRC_PITCH_DEG);   }
+static void act_stat_dft(void) { select_stat(ROW_SRC_DRIFT_DEG);   }
+
 static void act_lora_on(void)  { config_set_lora_enabled(true); }
 static void act_lora_off(void) { config_set_lora_enabled(false); }
-
-/* Row source setters */
-#define ROW_SRC_ACTION(name, row, src) \
-static void name(void) { config_set_row_src(row, src); }
-
-ROW_SRC_ACTION(act_r0_hdg, 0, ROW_SRC_HEADING_DEG)
-ROW_SRC_ACTION(act_r0_spd, 0, ROW_SRC_SPEED_KT)
-ROW_SRC_ACTION(act_r0_alt, 0, ROW_SRC_ALTITUDE_M)
-ROW_SRC_ACTION(act_r0_rol, 0, ROW_SRC_ROLL_DEG)
-ROW_SRC_ACTION(act_r0_pch, 0, ROW_SRC_PITCH_DEG)
-ROW_SRC_ACTION(act_r0_dft, 0, ROW_SRC_DRIFT_DEG)
-
-ROW_SRC_ACTION(act_r1_hdg, 1, ROW_SRC_HEADING_DEG)
-ROW_SRC_ACTION(act_r1_spd, 1, ROW_SRC_SPEED_KT)
-ROW_SRC_ACTION(act_r1_alt, 1, ROW_SRC_ALTITUDE_M)
-ROW_SRC_ACTION(act_r1_rol, 1, ROW_SRC_ROLL_DEG)
-ROW_SRC_ACTION(act_r1_pch, 1, ROW_SRC_PITCH_DEG)
-ROW_SRC_ACTION(act_r1_dft, 1, ROW_SRC_DRIFT_DEG)
-
-ROW_SRC_ACTION(act_r2_hdg, 2, ROW_SRC_HEADING_DEG)
-ROW_SRC_ACTION(act_r2_spd, 2, ROW_SRC_SPEED_KT)
-ROW_SRC_ACTION(act_r2_alt, 2, ROW_SRC_ALTITUDE_M)
-ROW_SRC_ACTION(act_r2_rol, 2, ROW_SRC_ROLL_DEG)
-ROW_SRC_ACTION(act_r2_pch, 2, ROW_SRC_PITCH_DEG)
-ROW_SRC_ACTION(act_r2_dft, 2, ROW_SRC_DRIFT_DEG)
 
 /* LoRa sub-settings */
 static void act_id0(void) { config_set_lora_boat_id(0); }
@@ -203,7 +220,8 @@ static void act_tx5(void) { config_set_lora_tx_rate(5); }
 static const display_ui_menu_item_t items_settings[] = {
 	DISPLAY_UI_ACTION_ITEM ("SET WIND",  act_set_wind),
 	DISPLAY_UI_ACTION_ITEM ("MAG CAL",   act_mag_cal),
-	DISPLAY_UI_SUBMENU_ITEM("ROW CFG",   go_row_config),
+	DISPLAY_UI_ACTION_ITEM ("IMU CAL",   act_imu_cal),
+	DISPLAY_UI_SUBMENU_ITEM("STAT",      go_stat_select),
 	DISPLAY_UI_SUBMENU_ITEM("LORA",      go_lora),
 	DISPLAY_UI_ACTION_ITEM ("SAVE",      act_save),
 	DISPLAY_UI_ACTION_ITEM ("EXIT",      act_exit),
@@ -212,49 +230,17 @@ static const display_ui_menu_t menu_settings = {
 	"SETTINGS", items_settings, ARRAY_SIZE(items_settings)
 };
 
-static const display_ui_menu_item_t items_row_config[] = {
-	DISPLAY_UI_SUBMENU_ITEM("ROW 0", go_row0),
-	DISPLAY_UI_SUBMENU_ITEM("ROW 1", go_row1),
-	DISPLAY_UI_SUBMENU_ITEM("ROW 2", go_row2),
-	DISPLAY_UI_SUBMENU_ITEM("BACK",  go_settings),
+static const display_ui_menu_item_t items_stat[] = {
+	DISPLAY_UI_ACTION_ITEM ("HEADING",  act_stat_hdg),
+	DISPLAY_UI_ACTION_ITEM ("SPEED",    act_stat_spd),
+	DISPLAY_UI_ACTION_ITEM ("ALTITUDE", act_stat_alt),
+	DISPLAY_UI_ACTION_ITEM ("ROLL",     act_stat_rol),
+	DISPLAY_UI_ACTION_ITEM ("PITCH",    act_stat_pch),
+	DISPLAY_UI_ACTION_ITEM ("DRIFT",    act_stat_dft),
+	DISPLAY_UI_SUBMENU_ITEM("BACK",     go_settings),
 };
-static const display_ui_menu_t menu_row_config = {
-	"ROW CFG", items_row_config, ARRAY_SIZE(items_row_config)
-};
-
-#define ROW_SRC_ITEMS(r0, r1, r2, r3, r4, r5) \
-	DISPLAY_UI_ACTION_ITEM ("HEADING", r0), \
-	DISPLAY_UI_ACTION_ITEM ("SPEED",   r1), \
-	DISPLAY_UI_ACTION_ITEM ("ALTITUDE",r2), \
-	DISPLAY_UI_ACTION_ITEM ("ROLL",    r3), \
-	DISPLAY_UI_ACTION_ITEM ("PITCH",   r4), \
-	DISPLAY_UI_ACTION_ITEM ("DRIFT",   r5)
-
-static const display_ui_menu_item_t items_row0[] = {
-	ROW_SRC_ITEMS(act_r0_hdg, act_r0_spd, act_r0_alt,
-		      act_r0_rol, act_r0_pch, act_r0_dft),
-	DISPLAY_UI_SUBMENU_ITEM("BACK", go_row_config),
-};
-static const display_ui_menu_t menu_row0_src = {
-	"ROW 0", items_row0, ARRAY_SIZE(items_row0)
-};
-
-static const display_ui_menu_item_t items_row1[] = {
-	ROW_SRC_ITEMS(act_r1_hdg, act_r1_spd, act_r1_alt,
-		      act_r1_rol, act_r1_pch, act_r1_dft),
-	DISPLAY_UI_SUBMENU_ITEM("BACK", go_row_config),
-};
-static const display_ui_menu_t menu_row1_src = {
-	"ROW 1", items_row1, ARRAY_SIZE(items_row1)
-};
-
-static const display_ui_menu_item_t items_row2[] = {
-	ROW_SRC_ITEMS(act_r2_hdg, act_r2_spd, act_r2_alt,
-		      act_r2_rol, act_r2_pch, act_r2_dft),
-	DISPLAY_UI_SUBMENU_ITEM("BACK", go_row_config),
-};
-static const display_ui_menu_t menu_row2_src = {
-	"ROW 2", items_row2, ARRAY_SIZE(items_row2)
+static const display_ui_menu_t menu_stat_select = {
+	"STAT", items_stat, ARRAY_SIZE(items_stat)
 };
 
 static const display_ui_menu_item_t items_lora[] = {
@@ -305,50 +291,25 @@ static const display_ui_menu_t menu_tx_rate = {
 
 static void render_data_screen(void)
 {
-	const struct app_config *cfg = config_get();
 	struct data_averages avg;
 	struct nav_results   nav;
+	struct data_sample   latest;
 
 	data_engine_get_averages(&avg);
 	data_processor_get_results(&nav);
-
-	struct data_sample latest;
-
 	data_engine_get_latest(&latest);
 
+	const struct row_display_def *def = &row_defs[current_stat];
+	int val = def->scale(&avg, &latest, &nav);
+
 	display_ui_clear();
-
-	for (int row = 0; row < 3; row++) {
-		row_src_t src = cfg->row_src[row];
-
-		if (src >= ROW_SRC_COUNT) {
-			continue;
-		}
-
-		const struct row_display_def *def = &row_defs[src];
-		int val = def->scale(&avg, &latest, &nav);
-
-		display_ui_draw_row(row, val, def->postfix, def->label);
-
-		/* Middle row is always inverted (white-on-black) for visual separation.
-		 * For negative-capable sources the inversion is XOR'd on top. */
-		bool invert = (row == 1);
-
-		// if (def->can_be_negative) {
-		// 	if (src == ROW_SRC_ROLL_DEG)  { invert ^= (latest.roll_deg  < 0.0f); }
-		// 	if (src == ROW_SRC_PITCH_DEG) { invert ^= (latest.pitch_deg < 0.0f); }
-		// 	if (src == ROW_SRC_DRIFT_DEG) { invert ^= (nav.drift_deg    < 0.0f); }
-		// }
-
-		if (invert) {
-			display_ui_invert_row(row);
-		}
-	}
-
+	display_ui_draw_row(0, val, def->postfix, def->label);
 	display_ui_flush();
 }
 
 /* ── Calibration screen rendering ────────────────────────────────────────── */
+
+static const char * const cal_labels[] = { "GAP", "FIT", "N" };
 
 static void render_cal_screen(void)
 {
@@ -356,19 +317,38 @@ static void render_cal_screen(void)
 
 	ahrs_cal_get_quality(&q);
 
-	int gap = (int)(q.gap_pct + 0.5f);
-	int fit = (int)(q.fit_error * 10.0f + 0.5f);  /* µT × 10 */
-	int n   = (int)q.sample_count;
+	int vals[3];
 
-	if (gap > 100) { gap = 100; }
-	if (fit > 999) { fit = 999; }
-	if (n   > 999) { n   = 999; }
+	vals[0] = (int)(q.gap_pct + 0.5f);
+	vals[1] = (int)(q.fit_error * 10.0f + 0.5f);  /* µT × 10 */
+	vals[2] = (int)q.sample_count;
+
+	if (vals[0] > 100) { vals[0] = 100; }
+	if (vals[1] > 999) { vals[1] = 999; }
+	if (vals[2] > 999) { vals[2] = 999; }
 
 	display_ui_clear();
-	display_ui_draw_row(0, gap, DISPLAY_UI_POSTFIX_NONE, "GAP");
-	display_ui_draw_row(1, fit, DISPLAY_UI_POSTFIX_NONE, "FIT");
-	display_ui_invert_row(1);
-	display_ui_draw_row(2, n,   DISPLAY_UI_POSTFIX_NONE, "N");
+	display_ui_draw_row(0, vals[cal_view], DISPLAY_UI_POSTFIX_NONE,
+			    cal_labels[cal_view]);
+	display_ui_invert_row(0);  /* black background makes cal screen distinct */
+	display_ui_flush();
+}
+
+static void render_imu_cal_screen(void)
+{
+	uint32_t n = ahrs_imu_cal_get_count();
+
+	if (n > 999) {
+		n = 999;
+	}
+
+	display_ui_clear();
+	display_ui_draw_row(0, (int)n, DISPLAY_UI_POSTFIX_NONE, "IMU");
+
+	if (n >= IMU_CAL_N_TARGET) {
+		display_ui_invert_row(0);   /* inverted = ready to accept */
+	}
+
 	display_ui_flush();
 }
 
@@ -416,9 +396,12 @@ static void display_thread(void *p1, void *p2, void *p3)
 	bool    scroll_long_fired  = false;
 	int64_t last_render_ms     = k_uptime_get();
 
-	in_menu        = false;
-	current_menu   = &menu_settings;
-	menu_selected  = 0;
+	in_menu       = false;
+	current_menu  = &menu_settings;
+	menu_selected = 0;
+	current_stat  = config_get()->row_src;
+	cal_view      = 0;
+	in_imu_cal    = false;
 
 	LOG_INF("Display engine started");
 
@@ -441,15 +424,41 @@ static void display_thread(void *p1, void *p2, void *p3)
 				}
 			}
 
-			/* Short-press sw0: restart calibration */
+			/* Short-press sw0: cycle cal view (GAP → FIT → N) */
 			if (!scroll && prev_scroll && !scroll_long_fired) {
-				ahrs_cal_start();
-				LOG_INF("Mag cal restarted");
+				cal_view = (cal_view + 1) % 3;
 			}
 
 			/* sw1: accept calibration, save */
 			if (select && !prev_select) {
 				cal_finish(true);
+			}
+
+			goto buttons_done;
+		}
+
+		/* ── IMU calibration mode buttons ───────────────────────── */
+		if (in_imu_cal) {
+			/* Long-press sw0: cancel */
+			if (scroll && !prev_scroll) {
+				scroll_press_start = k_uptime_get();
+				scroll_long_fired  = false;
+			}
+			if (scroll && !scroll_long_fired) {
+				if ((k_uptime_get() - scroll_press_start) >= LONG_PRESS_MS) {
+					scroll_long_fired = true;
+					imu_cal_finish(false);
+				}
+			}
+
+			/* sw1: accept (requires minimum samples) */
+			if (select && !prev_select) {
+				imu_cal_finish(true);
+			}
+
+			/* Auto-commit when target reached */
+			if (ahrs_imu_cal_get_count() >= IMU_CAL_N_TARGET) {
+				imu_cal_finish(true);
 			}
 
 			goto buttons_done;
@@ -471,9 +480,13 @@ static void display_thread(void *p1, void *p2, void *p3)
 			}
 		}
 
-		/* ── Short-press scroll in menu ──────────────────────────── */
-		if (!scroll && prev_scroll && !scroll_long_fired && in_menu) {
-			menu_selected = (menu_selected + 1) % current_menu->count;
+		/* ── Short-press scroll ──────────────────────────────────── */
+		if (!scroll && prev_scroll && !scroll_long_fired) {
+			if (in_menu) {
+				menu_selected = (menu_selected + 1) % current_menu->count;
+			} else {
+				select_stat((current_stat + 1) % ROW_SRC_COUNT);
+			}
 		}
 
 		/* ── Select button ───────────────────────────────────────── */
@@ -505,6 +518,8 @@ buttons_done:
 			last_render_ms = now;
 			if (in_cal) {
 				render_cal_screen();
+			} else if (in_imu_cal) {
+				render_imu_cal_screen();
 			} else if (in_menu) {
 				display_ui_draw_menu(current_menu, menu_selected);
 				display_ui_flush();

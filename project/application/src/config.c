@@ -18,7 +18,7 @@ LOG_MODULE_REGISTER(config, LOG_LEVEL_INF);
 static const struct app_config cfg_defaults = {
 	.sample_rate_hz = DATA_RATE_10HZ,
 	.data_sources   = DATA_SRC_GPS | DATA_SRC_AHRS,
-	.row_src        = { ROW_SRC_ROLL_DEG, ROW_SRC_HEADING_DEG, ROW_SRC_PITCH_DEG },
+	.row_src        = ROW_SRC_ROLL_DEG,
 	.lora = {
 		.enabled    = false,
 		.boat_id    = 0,
@@ -33,14 +33,9 @@ static const struct app_config cfg_defaults = {
 	.gyro_bias_z_mdps  = -599.0f,
 	.hard_iron         = { -49.20f, 49.96f, -27.15f },
 	.soft_iron         = {
-		{ +0.979f, +0.044f, -0.015f },
-		{ +0.044f, +1.005f, -0.004f },
-		{ -0.015f, -0.004f, +1.019f },
-	},
-	.imu_to_mag_rot = {
-		{ -1.0f, 0.0f, 0.0f },
-		{ 0.0f, -1.0f, 0.0f },
-		{ 0.0f, 0.0f, 1.0f },
+		{ +1.0f, +0.0f, +0.0f },
+		{ +0.0f, +1.0f, +0.0f },
+		{ +0.0f, +0.0f, +1.0f },
 	},
 };
 
@@ -61,9 +56,7 @@ static int h_set(const char *key, size_t len, settings_read_cb read_cb, void *cb
 
 	LOAD("engine/rate_hz",   sample_rate_hz)
 	LOAD("engine/sources",   data_sources)
-	LOAD("disp/row0",        row_src[0])
-	LOAD("disp/row1",        row_src[1])
-	LOAD("disp/row2",        row_src[2])
+	LOAD("disp/stat",        row_src)
 	LOAD("lora/enabled",     lora.enabled)
 	LOAD("lora/boat_id",     lora.boat_id)
 	LOAD("lora/n_boats",     lora.n_boats)
@@ -76,7 +69,6 @@ static int h_set(const char *key, size_t len, settings_read_cb read_cb, void *cb
 	LOAD("cal/gyro_z",       gyro_bias_z_mdps)
 	LOAD("cal/hard_iron",    hard_iron)
 	LOAD("cal/soft_iron",    soft_iron)
-	LOAD("cal/imu_to_mag",   imu_to_mag_rot)
 
 #undef LOAD
 	return -ENOENT;
@@ -88,9 +80,7 @@ static int h_export(int (*export_fn)(const char *name, const void *val, size_t l
 
 	SAVE("engine/rate_hz",  sample_rate_hz);
 	SAVE("engine/sources",  data_sources);
-	SAVE("disp/row0",       row_src[0]);
-	SAVE("disp/row1",       row_src[1]);
-	SAVE("disp/row2",       row_src[2]);
+	SAVE("disp/stat",       row_src);
 	SAVE("lora/enabled",    lora.enabled);
 	SAVE("lora/boat_id",    lora.boat_id);
 	SAVE("lora/n_boats",    lora.n_boats);
@@ -103,7 +93,6 @@ static int h_export(int (*export_fn)(const char *name, const void *val, size_t l
 	SAVE("cal/gyro_z",      gyro_bias_z_mdps);
 	SAVE("cal/hard_iron",   hard_iron);
 	SAVE("cal/soft_iron",   soft_iron);
-	SAVE("cal/imu_to_mag",  imu_to_mag_rot);
 
 #undef SAVE
 	return 0;
@@ -125,8 +114,7 @@ int config_init(void)
 		return ret;
 	}
 	
-	// ret = settings_load();
-	ret = 1;
+	ret = settings_load();
 	if (ret) {
 		LOG_WRN("settings_load failed: %d — using defaults", ret);
 	}
@@ -158,7 +146,7 @@ int config_save(void)
 
 void config_set_sample_rate(data_rate_t hz)     { cfg.sample_rate_hz = hz; }
 void config_set_data_sources(data_src_flags_t f){ cfg.data_sources = f; }
-void config_set_row_src(int row, row_src_t src) { if (row >= 0 && row < 3) { cfg.row_src[row] = src; } }
+void config_set_row_src(row_src_t src)           { cfg.row_src = src; }
 void config_set_lora_enabled(bool en)           { cfg.lora.enabled = en; }
 void config_set_lora_boat_id(uint8_t id)        { cfg.lora.boat_id = id; }
 void config_set_lora_n_boats(uint8_t n)         { cfg.lora.n_boats = n; }
@@ -189,11 +177,3 @@ void config_set_ahrs_mag_cal(const float hard[3], const float soft[3][3])
 	}
 }
 
-void config_set_ahrs_rotation(const float rot[3][3])
-{
-	for (int i = 0; i < 3; i++) {
-		for (int j = 0; j < 3; j++) {
-			cfg.imu_to_mag_rot[i][j] = rot[i][j];
-		}
-	}
-}

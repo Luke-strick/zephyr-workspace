@@ -13,9 +13,6 @@
 #define D2R     (M_PI_F / 180.0f)
 #define R2D     (180.0f / M_PI_F)
 
-#define ALPHA   (CONFIG_AHRS_ALPHA_X1000 / 1000.0f)
-#define DT_S    (CONFIG_AHRS_DT_MS / 1000.0f)
-#define DEADBAND (CONFIG_AHRS_GYRO_DEADBAND_MRAD / 1000.0f)  /* rad/s */
 
 /* ── State ───────────────────────────────────────────────────────────────── */
 
@@ -33,12 +30,6 @@ static float soft_iron[3][3] = {
 	{0.0f, 0.0f, 1.0f},
 };
 
-/* IMU → mag frame rotation */
-static float imu_to_mag[3][3] = {
-	{1.0f, 0.0f, 0.0f},
-	{0.0f, 1.0f, 0.0f},
-	{0.0f, 0.0f, 1.0f},
-};
 
 /* Filter state */
 static float roll;
@@ -59,11 +50,6 @@ static void mat3_apply(const float m[3][3],
 	*ox = m[0][0]*ix + m[0][1]*iy + m[0][2]*iz;
 	*oy = m[1][0]*ix + m[1][1]*iy + m[1][2]*iz;
 	*oz = m[2][0]*ix + m[2][1]*iy + m[2][2]*iz;
-}
-
-static inline float deadband(float v)
-{
-	return (v > DEADBAND || v < -DEADBAND) ? v : 0.0f;
 }
 
 static int read_imu(float *ax, float *ay, float *az,
@@ -133,15 +119,13 @@ int ahrs_init(const struct device *imu, const struct device *mag)
 	sensor_attr_set(imu_dev, SENSOR_CHAN_GYRO_XYZ,
 			SENSOR_ATTR_SAMPLING_FREQUENCY, &odr);
 
-	/* Seed roll/pitch from the first accel reading */
+	/* Seed roll/pitch from the first accel reading.
+	 * IMU: X=up, Y=right, Z=toward (bow).  Nav frame: X=fwd, Y=right, Z=up. */
 	float ax, ay, az, gx, gy, gz;
 
 	if (read_imu(&ax, &ay, &az, &gx, &gy, &gz) == 0) {
-		float ax_m, ay_m, az_m;
-
-		mat3_apply(imu_to_mag, ax, ay, az, &ax_m, &ay_m, &az_m);
-		roll  = atan2f(ay_m, az_m);
-		pitch = atan2f(-ax_m, sqrtf(ay_m*ay_m + az_m*az_m));
+		roll  = atan2f(ay, ax);
+		pitch = atan2f(-az, sqrtf(ay*ay + ax*ax));
 	}
 
 	return 0;
@@ -160,11 +144,6 @@ void ahrs_set_mag_calibration(const float hi[3], const float si[3][3])
 	memcpy(soft_iron, si, sizeof(soft_iron));
 }
 
-void ahrs_set_imu_to_mag_rotation(const float rot[3][3])
-{
-	memcpy(imu_to_mag, rot, sizeof(imu_to_mag));
-}
-
 int ahrs_update(void)
 {
 	float ax, ay, az, gx, gy, gz, mx, my, mz;
@@ -174,46 +153,42 @@ int ahrs_update(void)
 		return -EIO;
 	}
 
-	/* Remove gyro bias and apply deadband */
-	gx = deadband(gx - gyro_bias[0]);
-	gy = deadband(gy - gyro_bias[1]);
-	gz = deadband(gz - gyro_bias[2]);
+	ARG_UNUSED(gx); ARG_UNUSED(gy); ARG_UNUSED(gz);
 
-	/* Rotate accel and gyro into the mag frame */
-	float ax_m, ay_m, az_m;
-	float gx_m, gy_m, gz_m;
+	/* ── Attitude ────────────────────────────────────────────────────────
+	 * IMU physical axes: X=up, Y=right, Z=toward (bow).
+	 * Nav frame used internally: X=fwd(bow), Y=right, Z=up.
+	 *   nav_Y = imu_Y,  nav_Z = imu_X
+	 * roll > 0 = starboard (right) side down.
+	 * pitch negative = bow up (convention matches heading formula below). */
+	roll  = atan2f(ay, ax);
+	pitch = atan2f(-az, sqrtf(ay*ay + ax*ax));
 
-	mat3_apply(imu_to_mag, ax, ay, az, &ax_m, &ay_m, &az_m);
-	mat3_apply(imu_to_mag, gx, gy, gz, &gx_m, &gy_m, &gz_m);
-
-	/* Accel-derived roll and pitch */
-	float roll_acc  = atan2f(ay_m, az_m);
-	float pitch_acc = atan2f(-ax_m, sqrtf(ay_m*ay_m + az_m*az_m));
-
-	/* Complementary filter */
-	roll  = ALPHA * (roll  + gx_m * DT_S) + (1.0f - ALPHA) * roll_acc;
-	pitch = ALPHA * (pitch + gy_m * DT_S) + (1.0f - ALPHA) * pitch_acc;
-
-	/* Mag hard-iron correction */
+	/* ── Tilt-compensated heading ────────────────────────────────────────
+	 * MAG physical axes: X=down, Y=left, Z=toward (bow).
+	 * Map corrected mag to nav frame: X_nav=fwd=mag_Z, Y_nav=right=-mag_Y,
+	 *   Z_nav=up=-mag_X. */
 	mx -= hard_iron[0];
 	my -= hard_iron[1];
 	mz -= hard_iron[2];
 
-	/* Mag soft-iron correction */
 	float cx, cy, cz;
 
 	mat3_apply(soft_iron, mx, my, mz, &cx, &cy, &cz);
 
-	/* Tilt compensation: project mag onto the horizontal plane */
+	/* Corrected mag in nav frame */
+	float cx_n = cz;    /* toward → forward */
+	float cy_n = -cy;   /* left   → right   */
+	float cz_n = -cx;   /* down   → up      */
+
 	float cos_r = cosf(roll);
 	float sin_r = sinf(roll);
 	float cos_p = cosf(pitch);
 	float sin_p = sinf(pitch);
 
-	float mx_h = cx * cos_p + cz * sin_p;
-	float my_h = cx * sin_r * sin_p + cy * cos_r - cz * sin_r * cos_p;
+	float mx_h = cx_n * cos_p + cz_n * sin_p;
+	float my_h = cx_n * sin_r * sin_p + cy_n * cos_r - cz_n * sin_r * cos_p;
 
-	/* Heading [0, 360) */
 	heading = atan2f(-my_h, mx_h) * R2D;
 	if (heading < 0.0f) {
 		heading += 360.0f;
@@ -401,4 +376,59 @@ void ahrs_cal_commit(void)
 
 	ahrs_cal_get_quality(&q);
 	ahrs_set_mag_calibration(q.hard_iron, q.soft_iron);
+}
+
+/* ── IMU static calibration ─────────────────────────────────────────────── */
+
+static double   imu_cal_sum[6];   /* ax, ay, az, gx, gy, gz accumulator */
+static uint32_t imu_cal_count;
+
+void ahrs_imu_cal_start(void)
+{
+	imu_cal_count = 0;
+	memset(imu_cal_sum, 0, sizeof(imu_cal_sum));
+}
+
+int ahrs_imu_cal_collect(void)
+{
+	float ax, ay, az, gx, gy, gz;
+
+	if (read_imu(&ax, &ay, &az, &gx, &gy, &gz)) {
+		return -EIO;
+	}
+
+	imu_cal_sum[0] += ax;
+	imu_cal_sum[1] += ay;
+	imu_cal_sum[2] += az;
+	imu_cal_sum[3] += gx;
+	imu_cal_sum[4] += gy;
+	imu_cal_sum[5] += gz;
+	imu_cal_count++;
+	return 0;
+}
+
+uint32_t ahrs_imu_cal_get_count(void)
+{
+	return imu_cal_count;
+}
+
+void ahrs_imu_cal_commit(float *gyro_x_mdps, float *gyro_y_mdps, float *gyro_z_mdps)
+{
+	if (imu_cal_count == 0) {
+		return;
+	}
+
+	double n      = (double)imu_cal_count;
+	float gx      = (float)(imu_cal_sum[3] / n);
+	float gy      = (float)(imu_cal_sum[4] / n);
+	float gz      = (float)(imu_cal_sum[5] / n);
+	float gx_mdps = gx * R2D * 1000.0f;
+	float gy_mdps = gy * R2D * 1000.0f;
+	float gz_mdps = gz * R2D * 1000.0f;
+
+	ahrs_set_gyro_bias(gx_mdps, gy_mdps, gz_mdps);
+
+	if (gyro_x_mdps) { *gyro_x_mdps = gx_mdps; }
+	if (gyro_y_mdps) { *gyro_y_mdps = gy_mdps; }
+	if (gyro_z_mdps) { *gyro_z_mdps = gz_mdps; }
 }

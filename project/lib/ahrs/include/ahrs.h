@@ -6,11 +6,14 @@
  *
  * Usage:
  *   1. ahrs_init(imu_dev, mag_dev)
- *   2. ahrs_set_gyro_bias(...)          // from acc_calibration sample
- *   3. ahrs_set_mag_calibration(...)    // from mag_calibration sample
- *   4. ahrs_set_imu_to_mag_rotation(...)// match PCB mounting
- *   5. Call ahrs_update() at CONFIG_AHRS_DT_MS interval
- *   6. ahrs_get(&roll, &pitch, &heading)
+ *   2. ahrs_set_gyro_bias(...)          // from IMU calibration
+ *   3. ahrs_set_mag_calibration(...)    // from mag calibration
+ *   4. Call ahrs_update() at CONFIG_AHRS_DT_MS interval
+ *   5. ahrs_get(&roll, &pitch, &heading)
+ *
+ * Sensor axes (hardcoded):
+ *   IMU:  X=up, Y=right, Z=toward (bow)
+ *   MAG:  X=down, Y=left,  Z=toward (bow)
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -41,6 +44,27 @@ int ahrs_init(const struct device *imu, const struct device *mag);
  */
 void ahrs_set_gyro_bias(float x_mdps, float y_mdps, float z_mdps);
 
+/* ── IMU (gyro) static calibration ─────────────────────────────────────── */
+
+/** Start (or restart) a gyro static calibration session. Keep device still. */
+void ahrs_imu_cal_start(void);
+
+/**
+ * Read the IMU and accumulate one raw gyro sample.
+ * Called by the data engine at 10 Hz while calibration is active.
+ * @return 0 on success, -EIO on sensor failure.
+ */
+int ahrs_imu_cal_collect(void);
+
+/** Return the number of samples collected so far. */
+uint32_t ahrs_imu_cal_get_count(void);
+
+/**
+ * Average collected samples and apply the gyro bias immediately via
+ * ahrs_set_gyro_bias(). Output pointers may be NULL.
+ */
+void ahrs_imu_cal_commit(float *gyro_x_mdps, float *gyro_y_mdps, float *gyro_z_mdps);
+
 /**
  * Set the magnetometer calibration (from mag_calibration sample).
  *
@@ -49,22 +73,6 @@ void ahrs_set_gyro_bias(float x_mdps, float y_mdps, float z_mdps);
  */
 void ahrs_set_mag_calibration(const float hard_iron[3],
 			      const float soft_iron[3][3]);
-
-/**
- * Set the rotation matrix from the IMU frame to the mag frame.
- *
- * This accounts for the physical mounting difference between the
- * LSM6DSO and LIS3MDL on the PCB.
- *
- * Common presets (Z-axis rotation only):
- *   0°:   { {1,0,0}, {0,1,0}, {0,0,1} }
- *   90°:  { {0,1,0}, {-1,0,0}, {0,0,1} }
- *   180°: { {-1,0,0}, {0,-1,0}, {0,0,1} }
- *   270°: { {0,-1,0}, {1,0,0}, {0,0,1} }
- *
- * @param rot  3×3 rotation matrix.
- */
-void ahrs_set_imu_to_mag_rotation(const float rot[3][3]);
 
 /**
  * Read sensors and advance the complementary filter by one step.

@@ -43,6 +43,7 @@ K_SEM_DEFINE(data_engine_sem, 0, 1);
 /* ── Calibration flag (atomic for cross-thread access) ─────────────────── */
 
 static volatile bool cal_active;
+static volatile bool imu_cal_active;
 
 /* ── GNSS callback ───────────────────────────────────────────────────────── */
 
@@ -155,6 +156,10 @@ static void engine_thread(void *p1, void *p2, void *p3)
 				ahrs_cal_collect();
 			}
 
+			if (imu_cal_active) {
+				ahrs_imu_cal_collect();
+			}
+
 			last_ahrs_ms = now;
 		}
 
@@ -258,4 +263,14 @@ void data_engine_set_calibrating(bool cal)
 bool data_engine_is_calibrating(void)
 {
 	return cal_active;
+}
+
+void data_engine_set_imu_calibrating(bool cal)
+{
+	imu_cal_active = cal;
+}
+
+bool data_engine_is_imu_calibrating(void)
+{
+	return imu_cal_active;
 }
