@@ -19,6 +19,8 @@ static const struct app_config cfg_defaults = {
 	.sample_rate_hz = DATA_RATE_10HZ,
 	.data_sources   = DATA_SRC_GPS | DATA_SRC_AHRS,
 	.row_src        = ROW_SRC_ROLL_DEG,
+	.box_src        = { BOX_SRC_SOG, BOX_SRC_COG, BOX_SRC_ROLL, BOX_SRC_TIMER },
+	.timer_minutes  = 5,
 	.lora = {
 		.enabled    = false,
 		.boat_id    = 0,
@@ -57,6 +59,8 @@ static int h_set(const char *key, size_t len, settings_read_cb read_cb, void *cb
 	LOAD("engine/rate_hz",   sample_rate_hz)
 	LOAD("engine/sources",   data_sources)
 	LOAD("disp/stat",        row_src)
+	LOAD("disp/boxes",       box_src)
+	LOAD("disp/timer_min",   timer_minutes)
 	LOAD("lora/enabled",     lora.enabled)
 	LOAD("lora/boat_id",     lora.boat_id)
 	LOAD("lora/n_boats",     lora.n_boats)
@@ -81,6 +85,8 @@ static int h_export(int (*export_fn)(const char *name, const void *val, size_t l
 	SAVE("engine/rate_hz",  sample_rate_hz);
 	SAVE("engine/sources",  data_sources);
 	SAVE("disp/stat",       row_src);
+	SAVE("disp/boxes",      box_src);
+	SAVE("disp/timer_min",  timer_minutes);
 	SAVE("lora/enabled",    lora.enabled);
 	SAVE("lora/boat_id",    lora.boat_id);
 	SAVE("lora/n_boats",    lora.n_boats);
@@ -147,6 +153,14 @@ int config_save(void)
 void config_set_sample_rate(data_rate_t hz)     { cfg.sample_rate_hz = hz; }
 void config_set_data_sources(data_src_flags_t f){ cfg.data_sources = f; }
 void config_set_row_src(row_src_t src)           { cfg.row_src = src; }
+void config_set_timer_minutes(uint8_t min)       { cfg.timer_minutes = min; }
+
+void config_set_box_src(int slot, box_src_t src)
+{
+	if (slot >= 0 && slot < BOX_COUNT) {
+		cfg.box_src[slot] = src;
+	}
+}
 void config_set_lora_enabled(bool en)           { cfg.lora.enabled = en; }
 void config_set_lora_boat_id(uint8_t id)        { cfg.lora.boat_id = id; }
 void config_set_lora_n_boats(uint8_t n)         { cfg.lora.n_boats = n; }

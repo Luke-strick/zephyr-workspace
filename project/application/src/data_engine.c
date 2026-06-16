@@ -36,6 +36,17 @@ static K_MUTEX_DEFINE(avg_mutex);
 static struct data_averages shared_avg;
 static struct data_sample   latest_sample;
 
+/* Most recent GPS values, carried forward between fixes (engine thread only).
+ * GPS arrives at ~1 Hz but samples capture at up to 10 Hz, so without this the
+ * 9/10 samples between fixes would read zero. */
+static struct gnss_time last_gps_utc;
+static uint32_t last_gps_speed_mm_s;
+static uint32_t last_gps_bearing_mdeg;
+static int32_t  last_gps_altitude_mm;
+static int64_t  last_gps_lat_ndeg;
+static int64_t  last_gps_lon_ndeg;
+static bool     last_gps_fix_valid;
+
 /* ── Semaphore to signal data_processor ─────────────────────────────────── */
 
 K_SEM_DEFINE(data_engine_sem, 0, 1);
@@ -113,6 +124,7 @@ static void recompute_averages(const struct app_config *cfg)
 
 		avg.last_lat_ndeg = ring[last].gps_lat_ndeg;
 		avg.last_lon_ndeg = ring[last].gps_lon_ndeg;
+		avg.utc           = last_gps_utc;
 	}
 
 	k_mutex_lock(&avg_mutex, K_FOREVER);
@@ -180,15 +192,25 @@ static void engine_thread(void *p1, void *p2, void *p3)
 		k_spinlock_key_t key = k_spin_lock(&gps_lock);
 
 		if (pending_gps_valid) {
-			s.gps_speed_mm_s   = pending_gps.nav_data.speed;
-			s.gps_bearing_mdeg = pending_gps.nav_data.bearing;
-			s.gps_altitude_mm  = pending_gps.nav_data.altitude;
-			s.gps_lat_ndeg     = pending_gps.nav_data.latitude;
-			s.gps_lon_ndeg     = pending_gps.nav_data.longitude;
-			s.gps_fix_valid    = (pending_gps.info.fix_status != GNSS_FIX_STATUS_NO_FIX);
-			pending_gps_valid  = false;
+			last_gps_speed_mm_s   = pending_gps.nav_data.speed;
+			last_gps_bearing_mdeg = pending_gps.nav_data.bearing;
+			last_gps_altitude_mm  = pending_gps.nav_data.altitude;
+			last_gps_lat_ndeg     = pending_gps.nav_data.latitude;
+			last_gps_lon_ndeg     = pending_gps.nav_data.longitude;
+			last_gps_fix_valid    =
+				(pending_gps.info.fix_status != GNSS_FIX_STATUS_NO_FIX);
+			last_gps_utc          = pending_gps.utc;
+			pending_gps_valid     = false;
 		}
 		k_spin_unlock(&gps_lock, key);
+
+		/* Carry the most recent GPS values forward into every sample. */
+		s.gps_speed_mm_s   = last_gps_speed_mm_s;
+		s.gps_bearing_mdeg = last_gps_bearing_mdeg;
+		s.gps_altitude_mm  = last_gps_altitude_mm;
+		s.gps_lat_ndeg     = last_gps_lat_ndeg;
+		s.gps_lon_ndeg     = last_gps_lon_ndeg;
+		s.gps_fix_valid    = last_gps_fix_valid;
 
 		/* Read AHRS. */
 		if (cfg->data_sources & DATA_SRC_AHRS) {

@@ -29,7 +29,8 @@
                 "decoders": [
                     {
                         "port": 0,
-                        "type": "console"
+                        "type": "console",
+                        "logfile": "${workspaceFolder}/rtt.log"
                     }
                 ]
             }

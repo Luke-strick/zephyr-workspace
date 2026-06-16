@@ -176,20 +176,51 @@ int ahrs_update(void)
 
 	mat3_apply(soft_iron, mx, my, mz, &cx, &cy, &cz);
 
-	/* Corrected mag in nav frame */
-	float cx_n = cz;    /* toward → forward */
-	float cy_n = -cy;   /* left   → right   */
-	float cz_n = -cx;   /* down   → up      */
+	/* Corrected mag in nav frame (X=fwd, Y=right, Z=up).
+	 * LIS3MDL physical axes: X=down, Y=right, Z=toward stern. */
+	float cx_n = -cz;   /* -stern → forward */
+	float cy_n =  cy;   /*  right → right   */
+	float cz_n = -cx;   /* -down  → up       */
 
-	float cos_r = cosf(roll);
-	float sin_r = sinf(roll);
-	float cos_p = cosf(pitch);
-	float sin_p = sinf(pitch);
+	/*
+	 * Tilt-compensated heading by vector projection.
+	 *
+	 * This is robust to any tilt and to the Z-up nav frame: instead of the
+	 * Z-down AN3192 angle formulas (which leak the vertical field into the
+	 * heading when fed a Z-up vector), project both the bow axis and the
+	 * magnetic field onto the true horizontal plane and measure the angle
+	 * between them about the up axis.
+	 *
+	 * The "up" direction comes straight from the accelerometer (which reads
+	 * +g upward at rest), mapped to the nav frame. LSM6DSO physical axes:
+	 * X=up, Y=left, Z=toward stern → nav (fwd,right,up) = (-az, -ay, ax).
+	 */
+	float ufx = -az, ury = -ay, uuz = ax; /* up vector, nav (fwd,right,up) */
+	float un  = sqrtf(ufx * ufx + ury * ury + uuz * uuz);
 
-	float mx_h = cx_n * cos_p + cz_n * sin_p;
-	float my_h = cx_n * sin_r * sin_p + cy_n * cos_r - cz_n * sin_r * cos_p;
+	if (un > 1e-6f) {
+		ufx /= un; ury /= un; uuz /= un;
+	}
 
-	heading = atan2f(-my_h, mx_h) * R2D;
+	/* Remove the vertical component of the field → horizontal field. */
+	float m_dot_u = cx_n * ufx + cy_n * ury + cz_n * uuz;
+	float mhx = cx_n - m_dot_u * ufx;
+	float mhy = cy_n - m_dot_u * ury;
+	float mhz = cz_n - m_dot_u * uuz;
+
+	/* Horizontal projection of the bow axis (1,0,0). */
+	float f_dot_u = ufx;   /* (1,0,0)·u */
+	float fhx = 1.0f - f_dot_u * ufx;
+	float fhy =      - f_dot_u * ury;
+	float fhz =      - f_dot_u * uuz;
+
+	/* Angle from bow to magnetic north, about up. */
+	float dot   = fhx * mhx + fhy * mhy + fhz * mhz;
+	float cross = (fhy * mhz - fhz * mhy) * ufx +
+		      (fhz * mhx - fhx * mhz) * ury +
+		      (fhx * mhy - fhy * mhx) * uuz;
+
+	heading = atan2f(-cross, dot) * R2D;
 	if (heading < 0.0f) {
 		heading += 360.0f;
 	}

@@ -202,6 +202,15 @@ static const uint8_t font_digits[10][8] = {
 	{0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C,0x00}, /* 9 */
 };
 static const uint8_t font_space[8]   = {0};
+static const uint8_t font_colon[8]   = {
+	0x00, 0x04, 0x04, 0x00, 0x00, 0x04, 0x04, 0x00,
+};
+static const uint8_t font_dot[8]     = {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00,
+};
+static const uint8_t font_minus[8]   = {
+	0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00, 0x00,
+};
 static const uint8_t font_unknown[8] = {
 	0x1F, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1F, 0x00,
 };
@@ -212,6 +221,9 @@ static const uint8_t *get_char_bitmap(char c)
 	if (c >= 'a' && c <= 'z') { return font_upper[c - 'a']; }
 	if (c >= '0' && c <= '9') { return font_digits[c - '0']; }
 	if (c == ' ')              { return font_space; }
+	if (c == ':')              { return font_colon; }
+	if (c == '.')              { return font_dot; }
+	if (c == '-')              { return font_minus; }
 	return font_unknown;
 }
 
@@ -369,6 +381,116 @@ static void draw_text_centered(int px_area, int py_area, int w, int h,
 	}
 }
 
+/* ── Box grid + roll bar (data screen) ───────────────────────────────────── */
+
+#define ROLL_BAR_H    34   /* height of the bottom roll-indicator strip       */
+#define BOX_BORDER_T  1
+#define BOX_TITLE_S   2    /* small title/unit font scale                     */
+#define BOX_VALUE_MAX 8    /* max value font scale (auto-shrinks to fit)      */
+#define BOX_PAD       4
+
+/* Draw left-aligned text at virtual (px, py). */
+static void draw_text_left(int px, int py, const char *text, int scale)
+{
+	for (const char *p = text; *p; p++) {
+		draw_char(px, py, get_char_bitmap(*p), scale);
+		px += 5 * scale + scale;
+	}
+}
+
+void display_ui_draw_box(int slot, const char *title, const char *value,
+			 const char *unit)
+{
+	if (slot < 0 || slot > 3) {
+		return;
+	}
+
+	int grid_h = P_H - ROLL_BAR_H;
+	int box_w  = P_W / 2;
+	int box_h  = grid_h / 2;
+	int col    = slot & 1;
+	int row    = slot >> 1;
+	int x0     = col * box_w;
+	int y0     = row * box_h;
+	int x1     = x0 + box_w - 1;
+	int y1     = y0 + box_h - 1;
+
+	draw_border(x0, y0, x1, y1, BOX_BORDER_T);
+
+	/* Title (with unit appended) in the outer-top corner. */
+	char header[16] = {0};
+
+	if (title && *title) {
+		size_t i = 0;
+
+		for (const char *p = title; *p && i < sizeof(header) - 1; p++) {
+			header[i++] = *p;
+		}
+		if (unit && *unit && i < sizeof(header) - 1) {
+			header[i++] = ' ';
+			for (const char *p = unit; *p && i < sizeof(header) - 1; p++) {
+				header[i++] = *p;
+			}
+		}
+		header[i] = '\0';
+
+		int hw = str_len(header) * (5 * BOX_TITLE_S + BOX_TITLE_S);
+		int hx = (col == 0) ? x0 + BOX_PAD
+				    : x1 - BOX_PAD - hw;
+		draw_text_left(hx, y0 + BOX_PAD, header, BOX_TITLE_S);
+	}
+
+	/* Value: pick the largest scale that fits the box width, then centre. */
+	if (value && *value) {
+		int len   = str_len(value);
+		int avail = box_w - 2 * BOX_PAD;
+		int vs    = BOX_VALUE_MAX;
+
+		/* text width at scale s = len*5*s + (len-1)*s = s*(6*len - 1) */
+		while (vs > 1 && vs * (6 * len - 1) > avail) {
+			vs--;
+		}
+
+		int val_h = 8 * vs;
+		int blk_y = y0 + (box_h - val_h) / 2 + BOX_TITLE_S * 2;
+
+		draw_text_centered(x0, blk_y, box_w, val_h, value, vs);
+	}
+}
+
+void display_ui_draw_roll_bar(int roll_deg, int max_deg)
+{
+	int y0   = P_H - ROLL_BAR_H;
+	int y1   = P_H - 1;
+	int t    = 2;
+
+	/* Hollow full-width outline. */
+	draw_border(0, y0, P_W - 1, y1, t);
+
+	int mid   = P_W / 2;
+	int inner_y0 = y0 + t + 1;
+	int inner_y1 = y1 - t - 1;
+
+	/* Centre tick. */
+	fill_rect(mid - 1, y0, mid, y1);
+
+	if (max_deg <= 0) {
+		return;
+	}
+	if (roll_deg >  max_deg) { roll_deg =  max_deg; }
+	if (roll_deg < -max_deg) { roll_deg = -max_deg; }
+
+	int half  = mid - (t + 2);
+	/* Reversed: positive roll fills toward the left, negative toward right. */
+	int fill  = (-roll_deg * half) / max_deg;   /* signed pixels from centre */
+
+	if (fill > 0) {
+		fill_rect(mid + 1, inner_y0, mid + fill, inner_y1);
+	} else if (fill < 0) {
+		fill_rect(mid + fill, inner_y0, mid - 1, inner_y1);
+	}
+}
+
 /* ── Public API ──────────────────────────────────────────────────────────── */
 
 int display_ui_init(const struct device *dev)
@@ -389,6 +511,28 @@ void display_ui_draw_row(int row, int n, display_ui_postfix_t pf,
 {
 	draw_digit(0, row, (n / 100) % 10);
 	draw_digit(1, row, (n / 10)  % 10);
+	draw_digit(2, row,  n        % 10);
+	draw_postfix(row, pf);
+
+	if (label && *label) {
+		draw_row_label(row, label, CONFIG_DISPLAY_UI_LABEL_SCALE);
+	}
+}
+
+void display_ui_draw_row_d1(int row, int n, display_ui_postfix_t pf,
+			    const char *label)
+{
+	draw_digit(0, row, (n / 100) % 10);
+	draw_digit(1, row, (n / 10)  % 10);
+
+	/* Decimal point: filled square centred in the gap between col 1 and col 2 */
+	int dot_sz = DIGIT_T;
+	int gap_x0 = START_PX + 1 * (DIGIT_W + COL_GAP) + DIGIT_W;
+	int dot_x  = gap_x0 + (COL_GAP - dot_sz) / 2;
+	int dot_y  = row_py(row) + DIGIT_H - dot_sz;
+
+	fill_rect(dot_x, dot_y, dot_x + dot_sz - 1, dot_y + dot_sz - 1);
+
 	draw_digit(2, row,  n        % 10);
 	draw_postfix(row, pf);
 

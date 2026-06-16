@@ -26,8 +26,6 @@
 	#size-cells = <1>;
 
 	chosen {
-		zephyr,console = &usart1;
-		zephyr,shell-uart = &usart1;
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
 		zephyr,code-partition = &slot0_partition;
@@ -150,13 +148,17 @@
  * MCU Domain peripherals (always on)
  * ======================================================== */
 
-/* USART1 — console / spare UART (PA9 TX, PA10 RX) */
+/* USART1 — GPS BN220 (PA9 TX, PA10 RX, 9600 baud) */
 &usart1 {
-	pinctrl-0 = <&console_tx_active &console_rx_active>;
-	pinctrl-1 = <&console_tx_sleep &console_rx_sleep>;
+	pinctrl-0 = <&gps_tx_active &gps_rx_active>;
+	pinctrl-1 = <&gps_tx_sleep &gps_rx_sleep>;
 	pinctrl-names = "default", "sleep";
-	current-speed = <115200>;
+	current-speed = <9600>;
 	status = "okay";
+
+	gnss: gnss-nmea-generic {
+		compatible = "gnss-nmea-generic";
+	};
 };
 
 /* USB OTG FS (PA11 D-, PA12 D+) */
@@ -236,20 +238,9 @@ zephyr_udc0: &usbotg_fs {
 	};
 };
 
-/* USART3 — GPS MAX-M10S-00B (PC4 TX, PC5 RX)
- * No power-domains here: UART inits at PRE_KERNEL_1, before the
- * GPIO power-domain driver (POST_KERNEL).  The application must
- * ensure the 3V3 rail is on before talking to the GPS. */
+/* USART3 — unused (GPS moved to USART1) */
 &usart3 {
-	pinctrl-0 = <&gps_tx_active &gps_rx_active>;
-	pinctrl-1 = <&gps_tx_sleep &gps_rx_sleep>;
-	pinctrl-names = "default", "sleep";
-	current-speed = <9600>;
-	status = "okay";
-
-	gnss: gnss-nmea-generic {
-		compatible = "gnss-nmea-generic";
-	};
+	status = "disabled";
 };
 
 /* SDMMC1 — SD card (4-bit, PC7 card-detect) */
@@ -272,7 +263,7 @@ zephyr_udc0: &usbotg_fs {
  * 5V Domain peripherals (PA8 = 5V_EN)
  * ======================================================== */
 
-/* SPI2 — Sharp LS027B7DH01A memory LCD (write-only: SCK + MOSI) */
+/* SPI2 — Sharp LS044Q7DH01 memory LCD (write-only: SCK + MOSI) */
 &spi2 {
 	pinctrl-0 = <&lcd_sclk_active &lcd_si_active>;
 	pinctrl-1 = <&lcd_sclk_sleep &lcd_si_sleep>;
@@ -284,8 +275,8 @@ zephyr_udc0: &usbotg_fs {
 	ls0xx: ls0xx@0 {
 		compatible = "sharp,ls0xx";
 		reg = <0>;
-		spi-max-frequency = <4000000>;
-		width = <400>;
+		spi-max-frequency = <2000000>;
+		width = <320>;
 		height = <240>;
 		extcomin-gpios  = <&gpiob 13 GPIO_ACTIVE_HIGH>;
 		extcomin-frequency = <60>;

@@ -1,0 +1,16 @@
+[00:00:00.000,000] [0m<inf> power_domain_gpio: power-3v3 is now ON[0m
+[00:00:00.002,000] [0m<inf> power_domain_gpio: power-5v is now ON[0m
+[00:00:00.007,000] [0m<inf> ls0xx: Configuring DISP pin to OUTPUT_HIGH[0m
+[00:00:00.007,000] [0m<inf> ls0xx: Configuring EXTCOMIN pin[0m
+[00:00:00.007,000] [0m<inf> LSM6DSO: Initialize device lsm6dso@6a[0m
+[00:00:00.007,000] [0m<inf> LSM6DSO: chip id 0x6c[0m
+*** Booting Zephyr OS build v4.3.0 ***
+[00:00:00.401,000] [0m<inf> fs_nvs: 8 Sectors of 8192 bytes[0m
+[00:00:00.401,000] [0m<inf> fs_nvs: alloc wra: 0, 1ad0[0m
+[00:00:00.401,000] [0m<inf> fs_nvs: data wra: 0, 640[0m
+[00:00:00.407,000] [0m<inf> config: Config loaded (rate=10Hz lora=off twd=145.2)[0m
+[00:00:00.410,000] [0m<inf> main: LoRa disabled in config[0m
+[00:00:00.411,000] [0m<inf> main: Tracker started[0m
+[00:00:00.411,000] [0m<inf> data_engine: Data engine started[0m
+[00:00:00.411,000] [0m<inf> data_processor: Data processor started[0m
+[00:00:00.411,000] [0m<inf> display_engine: Display engine started[0m

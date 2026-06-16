@@ -51,10 +51,43 @@ void display_ui_draw_row(int row, int n, display_ui_postfix_t pf,
 			 const char *label);
 
 /**
+ * Draw a number with one decimal place ("XX.X") in row @p row.
+ *
+ * @param row    Row index (0 = top).
+ * @param n      Value in tenths, 0–999 (e.g. 123 → "12.3").
+ * @param pf     Postfix symbol to draw beside the number.
+ * @param label  Short string drawn vertically on the right edge of the row,
+ *               or NULL / "" for none.
+ */
+void display_ui_draw_row_d1(int row, int n, display_ui_postfix_t pf,
+			    const char *label);
+
+/**
  * XOR-invert all pixels in the background of @p row.
  * Call after draw_row to get white-on-black rendering.
  */
 void display_ui_invert_row(int row);
+
+/**
+ * Draw one box of the 2×2 data-screen grid (above the roll bar).
+ *
+ * @param slot   0=top-left, 1=top-right, 2=bottom-left, 3=bottom-right.
+ * @param title  Short label drawn small in the outer-top corner (or NULL).
+ * @param value  Value string drawn large and centred. Supports digits,
+ *               ':' and '.' (e.g. "087", "5:00", "12.3").
+ * @param unit   Short unit string drawn small below the value (or NULL/"").
+ */
+void display_ui_draw_box(int slot, const char *title, const char *value,
+			 const char *unit);
+
+/**
+ * Draw the hollow roll-indicator bar spanning the bottom of the screen.
+ * Fills from the centre toward the side the device tilts.
+ *
+ * @param roll_deg  Signed roll angle in degrees (+/-).
+ * @param max_deg   Roll magnitude that fills a half-bar (e.g. 45).
+ */
+void display_ui_draw_roll_bar(int roll_deg, int max_deg);
 
 /** Push the framebuffer to the display. */
 void display_ui_flush(void);

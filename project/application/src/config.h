@@ -40,6 +40,21 @@ typedef enum {
 	ROW_SRC_COUNT,
 } row_src_t;
 
+/* Content of one box in the 2×2 data-screen grid. */
+typedef enum {
+	BOX_SRC_SPEED = 0,   /* SOG in knots                */
+	BOX_SRC_COG,         /* course over ground, degrees */
+	BOX_SRC_SOG,         /* speed over ground, knots    */
+	BOX_SRC_ROLL,        /* roll, degrees               */
+	BOX_SRC_PITCH,       /* pitch, degrees              */
+	BOX_SRC_GPS_TIME,    /* GPS UTC time, HH:MM         */
+	BOX_SRC_HEADING,     /* compass bearing, degrees    */
+	BOX_SRC_TIMER,       /* race countdown/up timer     */
+	BOX_SRC_COUNT,
+} box_src_t;
+
+#define BOX_COUNT 4   /* 2×2 grid */
+
 /* ── Config structs ──────────────────────────────────────────────────────── */
 
 struct lora_cfg {
@@ -58,6 +73,8 @@ struct app_config {
 
 	/* Display */
 	row_src_t        row_src;
+	box_src_t        box_src[BOX_COUNT]; /* 2×2 grid contents */
+	uint8_t          timer_minutes;      /* race timer countdown: 1/3/5 */
 
 	/* LoRa */
 	struct lora_cfg  lora;
@@ -93,6 +110,8 @@ int config_save(void);
 void config_set_sample_rate(data_rate_t hz);
 void config_set_data_sources(data_src_flags_t flags);
 void config_set_row_src(row_src_t src);
+void config_set_box_src(int slot, box_src_t src);
+void config_set_timer_minutes(uint8_t min);
 void config_set_lora_enabled(bool enabled);
 void config_set_lora_boat_id(uint8_t id);
 void config_set_lora_n_boats(uint8_t n);

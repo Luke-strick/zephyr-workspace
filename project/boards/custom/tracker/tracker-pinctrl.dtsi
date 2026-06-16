@@ -50,22 +50,22 @@
 
 	/* ==============================================================
 	 * MCU Domain (always on)
-	 * Console USART1, USB, ADC
+	 * GPS USART1, USB, ADC
 	 * ============================================================== */
 
-	/* Console UART (PA9 TX, PA10 RX) */
-	console_tx_active: usart1_tx_pa9 {
+	/* GPS BN220 UART via USART1 (PA9 TX, PA10 RX) */
+	gps_tx_active: usart1_tx_pa9 {
 		pinmux = <STM32_PINMUX('A', 9, AF7)>;
 		bias-disable;
 	};
-	console_rx_active: usart1_rx_pa10 {
+	gps_rx_active: usart1_rx_pa10 {
 		pinmux = <STM32_PINMUX('A', 10, AF7)>;
 		bias-disable;
 	};
-	console_tx_sleep: usart1_sleep_pa9 {
+	gps_tx_sleep: usart1_sleep_pa9 {
 		pinmux = <STM32_PINMUX('A', 9, ANALOG)>;
 	};
-	console_rx_sleep: usart1_sleep_pa10 {
+	gps_rx_sleep: usart1_sleep_pa10 {
 		pinmux = <STM32_PINMUX('A', 10, ANALOG)>;
 	};
 
@@ -84,7 +84,7 @@
 
 	/* ==============================================================
 	 * 3V3 Domain (PB15 = 3V3_EN)
-	 * LoRa SPI1, Accel I2C3, Mag I2C1, GPS USART3, SDMMC1
+	 * LoRa SPI1, Accel I2C3, Mag I2C1, SDMMC1
 	 * ============================================================== */
 
 	/* LoRa E22-900M22S via SPI1 (PA1 SCK, PA6 MISO, PA7 MOSI) */
@@ -146,22 +146,6 @@
 	};
 	mag_sda_sleep: i2c1_sleep_pb7 {
 		pinmux = <STM32_PINMUX('B', 7, ANALOG)>;
-	};
-
-	/* GPS MAX-M10S via USART3 (PC4 TX, PC5 RX) */
-	gps_tx_active: usart3_tx_pc4 {
-		pinmux = <STM32_PINMUX('C', 4, AF7)>;
-		bias-disable;
-	};
-	gps_rx_active: usart3_rx_pc5 {
-		pinmux = <STM32_PINMUX('C', 5, AF7)>;
-		bias-disable;
-	};
-	gps_tx_sleep: usart3_sleep_pc4 {
-		pinmux = <STM32_PINMUX('C', 4, ANALOG)>;
-	};
-	gps_rx_sleep: usart3_sleep_pc5 {
-		pinmux = <STM32_PINMUX('C', 5, ANALOG)>;
 	};
 
 	/* SD Card via SDMMC1 (4-bit wide bus) */

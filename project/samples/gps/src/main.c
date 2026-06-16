@@ -1,10 +1,10 @@
 /*
- * GPS sample — MAX-M10S via GNSS subsystem
+ * GPS sample — BN220 (u-blox M8030) via GNSS subsystem
  *
  * Enables the 3V3 rail (GPS) and 5V rail (display), then:
- *  - Sends UBX-CFG-VALSET to enable GPS + Galileo + GLONASS + BeiDou
+ *  - Sends UBX-CFG-GNSS to enable GPS + SBAS + GLONASS
  *  - RTT: prints position, fix status, and satellite count each epoch
- *  - Display: shows 999 on all rows until fix, then SOG / SAT / COG
+ *  - Display: SAT updates live; SOG and COG show 999 until fix
  *
  * Row layout:
  *   Row 0 — SOG  (speed over ground, knots)
@@ -17,13 +17,14 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/pm/device_runtime.h>
+#include <zephyr/pm/device.h>
 #include <zephyr/drivers/gnss.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/sys/atomic.h>
 #include <display_ui.h>
 
 static const struct device *gnss_dev  = DEVICE_DT_GET(DT_NODELABEL(gnss));
-static const struct device *gps_uart  = DEVICE_DT_GET(DT_NODELABEL(usart3));
+static const struct device *gps_uart  = DEVICE_DT_GET(DT_NODELABEL(usart1));
 
 /* ── UBX helpers ─────────────────────────────────────────────────────────── */
 
@@ -59,166 +60,37 @@ static void ubx_send(uint8_t cls, uint8_t id,
 }
 
 /*
- * UBX-CFG-VALSET (class 0x06, id 0x8A) — M10 configuration interface.
+ * UBX-CFG-GNSS (class 0x06, id 0x3E) — M8 constellation configuration.
  *
- * Enables GPS + Galileo + GLONASS + BeiDou and saves to RAM + BBR + Flash
- * so the setting survives power cycles.
+ * Enables GPS (L1C/A) + SBAS + GLONASS (L1) on the M8030.
+ * The M8030 supports concurrent GPS+GLONASS with up to 32 tracking channels.
  *
- * Key IDs (little-endian 32-bit, type L = 1-byte value):
- *   0x10310001  CFG-SIGNAL-GPS_ENA
- *   0x10310021  CFG-SIGNAL-GAL_ENA   (Galileo)
- *   0x10310025  CFG-SIGNAL-GLO_ENA   (GLONASS)
- *   0x10310022  CFG-SIGNAL-BDS_ENA   (BeiDou)
- *
- * Verify these against Table "CFG-SIGNAL" in the MAX-M10S Integration Manual
- * (UBX-22009821) if you are on a different firmware version.
+ * Each 8-byte block: gnssId, resTrkCh, maxTrkCh, reserved, flags(LE u32)
+ *   flags bit 0        — enable
+ *   flags bits 16-23   — sigCfgMask (0x01 = L1C/A for GPS/SBAS, L1 for GLONASS)
  */
-static void ubx_enable_all_constellations(void)
+static void ubx_enable_constellations(void)
 {
 	static const uint8_t payload[] = {
-		0x00,                         /* version */
-		0x07,                         /* layers: RAM | BBR | Flash */
-		0x00, 0x00,                   /* reserved */
-		/* CFG-SIGNAL-GPS_ENA = 1 */
-		0x01, 0x00, 0x31, 0x10,  0x01,
-		/* CFG-SIGNAL-GAL_ENA = 1 (Galileo) */
-		0x21, 0x00, 0x31, 0x10,  0x01,
-		/* CFG-SIGNAL-GLO_ENA = 1 (GLONASS) */
-		0x25, 0x00, 0x31, 0x10,  0x01,
-		/* CFG-SIGNAL-BDS_ENA = 1 (BeiDou) */
-		0x22, 0x00, 0x31, 0x10,  0x01,
+		0x00,        /* msgVer */
+		0x00,        /* numTrkChHw (read-only, ignored) */
+		0xFF,        /* numTrkChUse (0xFF = use hardware max) */
+		0x03,        /* numConfigBlocks */
+		/* GPS: gnssId=0, resTrkCh=8, maxTrkCh=16, L1C/A enabled */
+		0x00, 0x08, 0x10, 0x00,  0x01, 0x00, 0x01, 0x00,
+		/* SBAS: gnssId=1, resTrkCh=1, maxTrkCh=3, L1C/A enabled */
+		0x01, 0x01, 0x03, 0x00,  0x01, 0x00, 0x01, 0x00,
+		/* GLONASS: gnssId=6, resTrkCh=8, maxTrkCh=14, L1 enabled */
+		0x06, 0x08, 0x0E, 0x00,  0x01, 0x00, 0x01, 0x00,
 	};
 
-	ubx_send(0x06, 0x8A, payload, sizeof(payload));
+	ubx_send(0x06, 0x3E, payload, sizeof(payload));
 }
 
-/* ── UBX-MON-RF poll ────────────────────────────────────────────────────── */
-
-/*
- * Read a single byte from the UART with a spin-loop timeout.
- * Returns 0 on success, -1 on timeout.
- */
-static int ubx_poll_in(uint8_t *byte, k_timeout_t timeout)
-{
-	int64_t deadline = k_uptime_get() + k_ticks_to_ms_floor64(timeout.ticks);
-
-	while (k_uptime_get() < deadline) {
-		if (uart_poll_in(gps_uart, byte) == 0) {
-			return 0;
-		}
-		k_usleep(100);
-	}
-	return -1;
-}
-
-/*
- * Poll UBX-MON-RF (class 0x0A, id 0x38) and print antenna status.
- *
- * Response per RF block (24 bytes each):
- *   antStatus: 0=INIT 1=DONTKNOW 2=OK 3=SHORT 4=OPEN
- *   antPower:  0=OFF  1=ON       2=DONTKNOW
- */
-static void ubx_poll_mon_rf(void)
-{
-	/* Send poll request (empty payload) */
-	ubx_send(0x0A, 0x38, NULL, 0);
-
-	/* Wait for UBX sync header — skip any NMEA traffic in the stream */
-	uint8_t b;
-	int attempts = 0;
-
-	while (attempts++ < 2000) {
-		if (ubx_poll_in(&b, K_MSEC(500)) < 0) {
-			printk("MON-RF: timeout waiting for response\n");
-			return;
-		}
-		if (b != 0xB5) {
-			continue;
-		}
-		if (ubx_poll_in(&b, K_MSEC(50)) < 0 || b != 0x62) {
-			continue;
-		}
-
-		/* Read class + id */
-		uint8_t hdr[4];
-
-		for (int i = 0; i < 4; i++) {
-			if (ubx_poll_in(&hdr[i], K_MSEC(50)) < 0) {
-				printk("MON-RF: header read failed\n");
-				return;
-			}
-		}
-
-		uint8_t cls = hdr[0], id = hdr[1];
-		uint16_t len = (uint16_t)hdr[2] | ((uint16_t)hdr[3] << 8);
-
-		if (cls != 0x0A || id != 0x38) {
-			/* Not our message — skip payload + 2 checksum bytes */
-			for (uint16_t i = 0; i < len + 2u; i++) {
-				if (ubx_poll_in(&b, K_MSEC(50)) < 0) {
-					return;
-				}
-			}
-			continue;
-		}
-
-		/* Read MON-RF payload (max reasonable size: 4 + 2*24 = 52) */
-		if (len > 128) {
-			printk("MON-RF: unexpected length %u\n", len);
-			return;
-		}
-
-		uint8_t payload[128];
-
-		for (uint16_t i = 0; i < len; i++) {
-			if (ubx_poll_in(&payload[i], K_MSEC(50)) < 0) {
-				printk("MON-RF: payload read failed\n");
-				return;
-			}
-		}
-
-		/* Skip checksum */
-		ubx_poll_in(&b, K_MSEC(50));
-		ubx_poll_in(&b, K_MSEC(50));
-
-		/* Parse header: version(1) nBlocks(1) reserved(2) */
-		uint8_t n_blocks = payload[1];
-
-		printk("MON-RF: %u RF block(s)\n", n_blocks);
-
-		static const char *ant_status_str[] = {
-			"INIT", "DONTKNOW", "OK", "SHORT", "OPEN"
-		};
-		static const char *ant_power_str[] = {
-			"OFF", "ON", "DONTKNOW"
-		};
-
-		for (uint8_t blk = 0; blk < n_blocks; blk++) {
-			uint8_t *p = &payload[4 + blk * 24];
-			uint8_t block_id   = p[0];
-			uint8_t jam_state  = p[1] & 0x03;
-			uint8_t ant_status = p[2];
-			uint8_t ant_power  = p[3];
-			uint16_t noise     = (uint16_t)p[12] | ((uint16_t)p[13] << 8);
-			uint16_t agc       = (uint16_t)p[14] | ((uint16_t)p[15] << 8);
-			uint8_t jam_ind    = p[16];
-
-			printk("  block %u: antStatus=%s antPower=%s "
-			       "jamState=%u jamInd=%u noise=%u agc=%u\n",
-			       block_id,
-			       ant_status < 5 ? ant_status_str[ant_status] : "?",
-			       ant_power  < 3 ? ant_power_str[ant_power]   : "?",
-			       jam_state, jam_ind, noise, agc);
-		}
-		return;
-	}
-
-	printk("MON-RF: no matching response found\n");
-}
 
 /* Data shared between GNSS callbacks and the display loop. */
 static atomic_t g_has_fix;
-static atomic_t g_sog_kt;   /* speed over ground, whole knots  */
+static atomic_t g_sog_kt;   /* speed over ground, tenths of knots (123 = 12.3 kt) */
 static atomic_t g_cog_deg;  /* course over ground, whole degrees */
 static atomic_t g_sat_cnt;  /* tracked satellite count */
 
@@ -242,8 +114,8 @@ static void gnss_data_cb(const struct device *dev, const struct gnss_data *data)
 	atomic_set(&g_has_fix, fixed ? 1 : 0);
 
 	if (fixed) {
-		/* speed: mm/s → knots  (1 kt = 514 mm/s) */
-		int sog = MIN((int)(data->nav_data.speed / 514), 999);
+		/* speed: mm/s → tenths of knots  (1 kt = 514 mm/s, 0.1 kt = 51.4 mm/s) */
+		int sog = MIN((int)(data->nav_data.speed * 10 / 514), 999);
 		/* bearing: milli-degrees → degrees */
 		int cog = MIN((int)(data->nav_data.bearing / 1000), 999);
 
@@ -254,7 +126,7 @@ static void gnss_data_cb(const struct device *dev, const struct gnss_data *data)
 		int64_t lon = data->nav_data.longitude;
 
 		printk("GPS:%s,sats=%u,lat=%lld.%09lld,lon=%lld.%09lld,alt=%d.%03dm,"
-		       "sog=%dkt,cog=%ddeg\n",
+		       "sog=%d.%dkt,cog=%ddeg\n",
 		       fix_str(data->info.fix_status),
 		       data->info.satellites_cnt,
 		       (long long)(lat / 1000000000LL),
@@ -263,7 +135,7 @@ static void gnss_data_cb(const struct device *dev, const struct gnss_data *data)
 		       (long long)llabs(lon % 1000000000LL),
 		       data->nav_data.altitude / 1000,
 		       abs(data->nav_data.altitude % 1000),
-		       sog, cog);
+		       sog / 10, sog % 10, cog);
 	} else {
 		printk("GPS:%s,sats=%u,waiting...\n",
 		       fix_str(data->info.fix_status),
@@ -300,17 +172,26 @@ int main(void)
 
 	printk("3V3 rail: %s (ret=%d)\n", ret == 0 ? "ON" : "FAILED", ret);
 
-	/* Give the MAX-M10S time to boot before sending UBX config */
+	/* Give the BN220 time to boot before sending UBX config */
 	k_msleep(200);
 
-	/* Enable all constellations — dramatically improves cold-start TTFF.
-	 * Settings are saved to flash so this only needs to run once, but
-	 * sending it every boot is harmless. */
-	ubx_enable_all_constellations();
+	/* Enable GPS + SBAS + GLONASS — improves cold-start TTFF.
+	 * M8 retains this in battery-backed RAM, but re-sending each boot
+	 * is harmless. */
+	ubx_enable_constellations();
 	printk("UBX: constellation config sent\n");
 
-	/* One-shot poll for antenna / RF status */
-	ubx_poll_mon_rf();
+	/* Resume the GNSS driver — with CONFIG_PM_DEVICE=y the driver starts
+	 * suspended (pm_device_init_suspended) and never opens the modem pipe
+	 * until explicitly resumed. Use pm_device_action_run (basic PM API)
+	 * because gnss_nmea_generic_init does NOT call pm_device_runtime_enable,
+	 * so pm_device_runtime_get would silently no-op. */
+	ret = pm_device_action_run(gnss_dev, PM_DEVICE_ACTION_RESUME);
+	if (ret < 0 && ret != -EALREADY) {
+		printk("GNSS resume failed (ret=%d)\n", ret);
+		return ret;
+	}
+	printk("GNSS resumed (ret=%d)\n", ret);
 
 	/* Bring up 5V rail — powers display */
 	pm_device_runtime_get(DEVICE_DT_GET(DT_NODELABEL(power_5v)));
@@ -327,24 +208,21 @@ int main(void)
 		return -ENODEV;
 	}
 
-	printk("GPS sample starting — waiting for MAX-M10S data\n");
+	printk("GPS sample starting — waiting for BN220 data\n");
 	printk("Place the device outdoors for a satellite fix.\n");
 
 	while (1) {
 		display_ui_clear();
 
-		if (!atomic_get(&g_has_fix)) {
-			display_ui_draw_row(0, 999, DISPLAY_UI_POSTFIX_KT,   "SOG");
-			display_ui_draw_row(1, 999, DISPLAY_UI_POSTFIX_NONE, "SAT");
-			display_ui_draw_row(2, 999, DISPLAY_UI_POSTFIX_DEG,  "COG");
-		} else {
-			display_ui_draw_row(0, (int)atomic_get(&g_sog_kt),
-					    DISPLAY_UI_POSTFIX_KT,   "SOG");
-			display_ui_draw_row(1, (int)atomic_get(&g_sat_cnt),
-					    DISPLAY_UI_POSTFIX_NONE, "SAT");
-			display_ui_draw_row(2, (int)atomic_get(&g_cog_deg),
-					    DISPLAY_UI_POSTFIX_DEG,  "COG");
-		}
+		bool fixed = atomic_get(&g_has_fix);
+
+		display_ui_draw_row_d1(0, fixed ? (int)atomic_get(&g_sog_kt) : 999,
+				       DISPLAY_UI_POSTFIX_KT, "SOG");
+		display_ui_draw_row(1, (int)atomic_get(&g_sat_cnt),
+				    DISPLAY_UI_POSTFIX_NONE, "SAT");
+		display_ui_draw_row(2, fixed ? (int)atomic_get(&g_cog_deg) : 999,
+				    DISPLAY_UI_POSTFIX_DEG,  "COG");
+
 
 		display_ui_flush();
 		k_msleep(500);
